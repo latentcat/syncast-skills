@@ -147,9 +147,13 @@ await window.__syncastAgent.run("syncast.doc.graphql", {
   prompt: "生成男主角角色设定图",
   modelType?: "nano-banana-2",
   params?: { aspect_ratio: "16:9" },
+  // Eleven sound effects only: top-level params, not nested in params.
+  durationSeconds?: 4,
+  promptInfluence?: 0.3,
+  loop?: true,
   references?: [{ assetId: "..." }],
   targetAssetName?: "男主角A",
-  durationSeconds?: 4
+  frameDuration?: 96
 }
 ```
 
@@ -245,12 +249,12 @@ await window.__syncastAgent.run("syncast.assets.downloadUrls", {
 | `syncast.imagine.estimateCredits` | read | `{ modelType, params?, count? }` | 本地积分估算、当前余额、是否足够 | 发起生成前预估成本 |
 | `syncast.imagine.draftMarkdown` | read | `{ items: {"1": {model_type, prompt, ...}} }` 或 `{ drafts: [{ index?, title?, targetAssetName?, modelType?, prompt?, params?, input? }] }`；每项最终必须有 `model_type` 和 `prompt` | `markdown` + `items`，语言标记为 `imagine` | 给用户多个待生成方案，不创建任务、不扣费 |
 | `syncast.imagine.optimizePrompt` | read | `{ prompt, modelType, params?, references?, firstFrameAssetId?, lastFrameAssetId?, locale? }` | `{ optimizedPrompt, rawOptimizedPrompt, modelType }` | 复用人类前端“优化提示词”按钮链路 |
-| `syncast.imagine.submit` | edit | `{ modelType, prompt, params?, references?, count?, channelId?, targetAssetName?, optimizePrompt?, optimizePromptLocale?, sourceSlot?, wait?, timeoutMs? }` | `{ messageId, taskIds, ref, billingEstimate, validation, promptOptimization, submitted }`；等待时包含 notification/result | 可选先优化提示词，再通过现有前端 Imagine 入队路径发起生成 |
+| `syncast.imagine.submit` | edit | `{ modelType, prompt, params?, durationSeconds?, promptInfluence?, loop?, references?, count?, channelId?, targetAssetName?, optimizePrompt?, optimizePromptLocale?, sourceSlot?, wait?, timeoutMs? }` | `{ messageId, taskIds, ref, billingEstimate, validation, promptOptimization, submitted }`；等待时包含 notification/result | 可选先优化提示词，再通过现有前端 Imagine 入队路径发起生成 |
 | `syncast.imagine.submitToChannel` | edit | 同 `submit` | 同 `submit` | 明确表达“提交到解析后的频道” |
 | `syncast.imagine.wait` | read | `{ ref, timeoutMs? }` | 完成/失败通知 | 等待生成完成 |
 | `syncast.imagine.result` | read | `{ ref }` | 生成消息摘要 | 读取生成结果 |
 
-`syncast.imagine.models` 默认等价于 `{ disclosure: "recommended", category: "all", includeSchemas: true }`。推荐图片模型优先 `nano-banana-2` 和 `oai-gpt-image-2`；图片一般只使用 2K，质量使用 `auto`。推荐视频生成模型只推荐 SeedDance 2.0；常规生成使用 `kittyvibe-seedance2.0pro`，快速预览或低成本需求使用 `kittyvibe-seedance2.0fast`。复杂动作、多主体、高运动量、怪兽或奇幻动作场景推荐 `kittyvibe-seedance2.0global`；快速/低成本 Global 预览推荐 `kittyvibe-seedance2.0fastglobal`。SeedDance 2.0 / Fast 只允许 720P，禁止 1080P。图片和视频超分/修复模型归在 `category: "upscale"`：`recraft-ai/recraft-crisp-upscale` 适合修复 Nano Banana Pro、GPT Image 2 等模型多轮编辑后的鳞片、噪点、颗粒和崩坏质感；`topaz/slp-2.5` 适合 AI 生成视频保真增强、去塑料感、提升人脸/材质/文字/logo 清晰度；`topaz/ast-2` 适合创意细节重建和 prompt 引导增强，支持 `creativity`、`sharp`、`realism`、`prompt`。如果用户明确需要其它模型，再调用 `{ disclosure: "all", includeSchemas: false }` 查看其它模型名称；只有真正要使用某个非推荐模型时，才调用 `{ disclosure: "all", includeSchemas: true }` 获取完整 schema。
+`syncast.imagine.models` 默认等价于 `{ disclosure: "recommended", category: "all", includeSchemas: true }`。推荐图片模型优先 `nano-banana-2` 和 `oai-gpt-image-2`；图片一般只使用 2K，质量使用 `auto`。推荐视频生成模型只推荐 SeedDance 2.0；常规生成使用 `kittyvibe-seedance2.0pro`，快速预览或低成本需求使用 `kittyvibe-seedance2.0fast`。复杂动作、多主体、高运动量、怪兽或奇幻动作场景推荐 `kittyvibe-seedance2.0global`；快速/低成本 Global 预览推荐 `kittyvibe-seedance2.0fastglobal`。推荐音频模型分两类：音乐/配乐优先 `lyria-3-clip` / `lyria-3-pro`，音效/环境声/拟音/UI 声优先 `fal-ai/elevenlabs/sound-effects/v2`。这个音效模型最终应提交英文提示词；如果用户原文是中文，提交链路会自动翻成英文，但外部 Agent 仍应优先直接编写英文声音描述。Eleven 音效参数使用顶层 `durationSeconds`、`promptInfluence`、`loop`；不要暴露或传入 `output_format`，后端固定使用 MP3 44.1kHz / 128kbps。SeedDance 2.0 / Fast 只允许 720P，禁止 1080P。图片和视频超分/修复模型归在 `category: "upscale"`：`recraft-ai/recraft-crisp-upscale` 适合修复 Nano Banana Pro、GPT Image 2 等模型多轮编辑后的鳞片、噪点、颗粒和崩坏质感；`topaz/slp-2.5` 适合 AI 生成视频保真增强、去塑料感、提升人脸/材质/文字/logo 清晰度；`topaz/ast-2` 适合创意细节重建和 prompt 引导增强，支持 `creativity`、`sharp`、`realism`、`prompt`。如果用户明确需要其它模型，再调用 `{ disclosure: "all", includeSchemas: false }` 查看其它模型名称；只有真正要使用某个非推荐模型时，才调用 `{ disclosure: "all", includeSchemas: true }` 获取完整 schema。
 
 积分估算来自前端本地定价表，真实扣费以后端 reserve / settle 为准。外部 Agent 在批量生成前应先调用 `syncast.billing.summary` 和 `syncast.imagine.estimateCredits`；`syncast.imagine.submit` 返回的 `billingEstimate` 可用于记录本次预计消耗。
 
@@ -269,7 +273,7 @@ Seedance 2.0 待生成视频参数如果要使用首尾帧，优先写 `first_fr
 
 提示词优化会复用前端的 `imagine_prompt_optimize` Response API 和白名单过滤逻辑。输入中的资产引用应使用内部 token 形式 `@{asset:<assetId>}`；如果外部 Agent 手里只有人类可读名称，先调用 `syncast.assets.resolveReferences` 解析成 assetId，再写入 prompt 或传入 `references`。优化结果会经过 sanitize：不允许模型新增未在原始 prompt / references / 首尾帧中的资产或文档 token。
 
-`syncast.imagine.submit` 支持 `optimizePrompt: true`。开启后会先执行同一条优化链路，再用优化后的 prompt 提交生成；返回中的 `promptOptimization` 会包含 original / optimized / raw optimized，`submitted` 会记录实际提交给生成器的 `modelType`、`prompt`、`params`、`references`、`count` 等参数。外部 Agent 如果想模拟人类“先写参数参考提示词 -> 点优化提示词 -> 再生成”的流程，优先使用这个封装。
+`syncast.imagine.submit` 支持 `optimizePrompt: true`。开启后会先执行同一条优化链路，再用优化后的 prompt 提交生成；返回中的 `promptOptimization` 会包含 original / optimized / raw optimized，`submitted` 会记录实际提交给生成器的 `modelType`、`prompt`、`params`、`references`、`count` 等参数。对 `fal-ai/elevenlabs/sound-effects/v2`，这条链路还会在提交前自动把中文 prompt 翻成英文，并把顶层 `durationSeconds`、`promptInfluence`、`loop` 合并为后端模型输入；`output_format` 由后端固定，不是 Agent 参数。外部 Agent 如果想模拟人类“先写参数参考提示词 -> 点优化提示词 -> 再生成”的流程，优先使用这个封装。
 
 `syncast.imagine.submit` 内置生成前校验，不需要外部 Agent 额外调用 preflight。校验会在原始 prompt、优化后 prompt 和最终模型输入上检查 `@{asset:...}`、`@{doc:...}`、`@{doc-section:...}` 是否可解析。提交成功返回的 `validation` 至少应满足：
 
