@@ -32,7 +32,14 @@ Run device authorization (opens browser or shows a link + code):
 syncast auth login
 ```
 
-For a custom API endpoint:
+Switch environment (dev is default):
+
+```shell
+syncast auth login --env nightly
+syncast auth login --env local
+```
+
+For a fully custom API endpoint:
 
 ```shell
 syncast auth login --api-url https://your-api.example.com
@@ -201,9 +208,17 @@ For video upscaling, use `topaz/slp-2.5` when the source is AI-generated or mode
 
 Credentials: `~/.syncast/config.json`
 
-Environment:
+Built-in environments:
 
-- `SYNCAST_API_URL` or `API_URL` — API base URL (default `https://dev-syncast-service.latentnet.com`)
+| Env | API URL |
+|-----|---------|
+| `dev` (default) | `https://dev-syncast-service.latentnet.com` |
+| `nightly` | `https://nightly-service.syncast.net` |
+| `local` | `http://localhost:8901` |
+
+Environment variables (override built-in):
+
+- `SYNCAST_API_URL` or `API_URL` — API base URL
 
 ## Agent workflow summary
 
