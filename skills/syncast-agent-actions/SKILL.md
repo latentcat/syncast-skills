@@ -141,7 +141,7 @@ await window.__syncastAgent.run("syncast.docs.readForAgent", {
 - 音频中的“音乐 / 歌曲 / BGM / 配乐”优先 Lyria；音频中的“音效 / 环境声 / 拟音 / UI 声 / 冲击音 / loop ambience”优先 `fal-ai/elevenlabs/sound-effects/v2`。这个音效模型最终应使用英文提示词；如用户输入中文，提交链路会自动翻成英文，但外部 Agent 仍应默认直接编写英文音效提示词。Agent Action 传参时使用顶层 `durationSeconds`、`promptInfluence`、`loop`，不要把这些音效参数塞进二级 `params`；`output_format` 不对外暴露，后端固定使用 MP3 44.1kHz / 128kbps。
 - 图片超分/修复模型在 `syncast.imagine.models` 的 `category: "upscale"` 中；`recraft-ai/recraft-crisp-upscale` 适合修复 Nano Banana Pro / GPT Image 2 多轮编辑后的鳞片、噪点、颗粒和崩坏质感，不需要 prompt。
 - 视频生成模型默认推荐 SeedDance 2.0，除非用户明确要求，否则用 Fast 模式；SeedDance 2.0 / Fast 只允许使用 720P，禁止使用 1080P。复杂动作、多主体、高运动量、怪兽或奇幻动作场景优先 `kittyvibe-seedance2.0global`；快速/低成本 Global 预览用 `kittyvibe-seedance2.0fastglobal`。
-- 视频超分/修复模型也在 `category: "upscale"` 中；`topaz/slp-2.5` 适合 AI 生成视频保真增强、去塑料感、提升人脸/材质/文字/logo 清晰度；`topaz/ast-2` 适合创意细节重建和 prompt 引导增强。Topaz 只用 `target_resolution: "1080p" | "4k"`；Astra 可额外传 `creativity`、`sharp`、`realism`、`prompt`。
+- 视频超分/修复模型也在 `category: "upscale"` 中；`topaz/slp-2.5` 适合 AI 生成视频保真增强、去塑料感、提升人脸/材质/文字/logo 清晰度；`fal-ai/topaz/upscale/video` 是 fal 版 Starlight Precise 2.5，适合明确要 fal 或需要 `upscale_factor`、`target_fps`、`compression`、`noise`、`halo`、`grain`、`recover_detail`、`H264_output` 参数时使用；`topaz/ast-2` 适合创意细节重建和 prompt 引导增强。Topaz 直连只用 `target_resolution: "1080p" | "4k"`；fal 版可直接传 `upscale_factor` 覆盖自动换算；Astra 可额外传 `creativity`、`sharp`、`realism`、`prompt`。
 - 要在时间轴上排一组待生成块时，使用 `syncast.timeline.generationSlots.createBatch` 创建 draft slots，让用户逐个手动触发；只有在用户明确确认扣费生成时才调用 `syncast.timeline.generationSlots.submit`。
 - 为节省上下文，可以建立本地临时项目计划文件缓存操作记录、资产名称与 ID、文档/章节 ID、Channel 和任务 ref；正式规范和剧本仍应写入 Syncast 项目文档。
 - 任何会消耗积分、写入项目、运行工作流或访问设备的动作，必须先向用户说明风险并获得确认。
