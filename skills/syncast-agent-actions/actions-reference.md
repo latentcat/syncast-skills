@@ -1,6 +1,6 @@
 # Syncast Agent Actions 参考
 
-这份文档是外部 Agent 操作 Syncast 网页的完整能力索引。当前 Action Layer 显式暴露 **49 个 action**，分成两类：
+这份文档是外部 Agent 操作 Syncast 网页的完整能力索引。当前 Action Layer 显式暴露 **50 个 action**，分成两类：
 
 - **原子化能力**：项目上下文、GraphQL/Loro、时间轴、频道、消息、资源、文档、任务、通知、Imagine、内部 Agent 对话。
 - **便捷封装路径**：把多个原子能力组合成更适合 Agent 使用的入口，例如 `project.inspect`、`agent.delegate`、`imagine.submit`、`docs.readForAgent`、`wait(..., { returnResult: true })`。
@@ -73,10 +73,18 @@ await window.__syncastAgent.run(actionName, input, options);
 | `syncast.doc.graphql.schema` | read | `{ mode?, module?, field?, query? }` | 默认模块索引；可查模块/字段/搜索 | 快速了解可用 GraphQL 面 |
 | `syncast.doc.graphql.explain` | read | 无 | 常用查询示例 | 避免 Agent 猜字段 |
 
-已显式提示的 GraphQL 字段包括：
+GraphQL 字段采用按模块渐进式披露。先调用 `syncast.doc.graphql.schema` 查看模块和字段摘要；需要写具体 query/mutation 时，再按需加载对应文件：
 
-- 查询：`assets`、`asset`、`assetBrowse`、`channels`、`channel`、`messages`、`message`、`docPages`、`docPage`、`docRead`、`docBlocks`、`docMarkdown`、`timelines`、`timeline`、`clipsByTimeline`、`clip`
-- 写入：`createAsset`、`updateAsset`、`createChannel`、`updateChannel`、`createChatMessage`、`createImagineMessage`、`createDocPage`、`updateDocPage`、`patchDoc`、`setDocBlocks`、`createTimeline`、`createGenerationSlot`、`updateGenerationSlotInput`、`setGenerationSlotOutput`
+| 模块 | 参考文件 | 典型字段 |
+| --- | --- | --- |
+| Assets | [graphql-reference/assets.md](graphql-reference/assets.md) | `assetBrowse`、`assetsByIds`、`organizeAssets`、`moveAssetsToFolder` |
+| Docs | [graphql-reference/docs.md](graphql-reference/docs.md) | `docRead`、`createDocPage`、`moveDocPage`、`patchDoc` |
+| Channels | [graphql-reference/channels.md](graphql-reference/channels.md) | `channels`、`messages`、`createChannel`、`deleteMessage` |
+| Timelines | [graphql-reference/timelines.md](graphql-reference/timelines.md) | `clipsByTimeline`、`generationSlotUsagesByAsset`、`createGenerationSlot` |
+| Canvas | [graphql-reference/canvas.md](graphql-reference/canvas.md) | `pageWithElements`、`createElement`、`moveElement` |
+| Agents | [graphql-reference/agents.md](graphql-reference/agents.md) | `agents`、`createAgent`、`deleteAgent` |
+| Skills | [graphql-reference/skills.md](graphql-reference/skills.md) | `customSkills`、`createCustomSkill` |
+| Prompt Templates | [graphql-reference/prompt-templates.md](graphql-reference/prompt-templates.md) | `customPromptTemplates`、`createCustomPromptTemplate` |
 
 **GraphQL 字段命名**：monodoc GraphQL 对外暴露 **camelCase** 字段名，不要使用 Loro 内部的 snake_case。常见对应关系：
 
@@ -221,7 +229,7 @@ await window.__syncastAgent.run("syncast.assets.downloadUrls", {
 
 `syncast.docs.readForAgent` 默认只返回索引，不返回正文，并且语义与 monodoc GraphQL 的 `docRead` 保持一致。典型流程是：先 `{ mode: "index" }` 看文档地图，再 `{ mode: "outline", docId }` 取真实 `sectionId` / `startBlockIndex` / `endBlockIndex`，最后 `{ mode: "content", docId, target: "section", sectionId, maxChars, loadedContextKeys }` 读取必要正文。继续读取使用返回的 `nextCursor`，去重使用 `contextKey`。全文只在用户明确需要时使用 `{ mode: "content", target: "full" }`。
 
-文档写入如果是简单结构化 mutation，可用 `syncast.doc.graphql` 的 `createDocPage`、`updateDocPage`、`patchDoc`、`setDocBlocks`。如果是业务性内容创作，优先用 `syncast.agent.delegate` 让内部 Agent 完成。
+文档写入如果是简单结构化 mutation，可用 `syncast.doc.graphql` 的 `createDocPage`、`updateDocPage`、`moveDocPage`、`moveDocPageBefore`、`moveDocPageAfter`、`deleteDocPage`、`patchDoc`、`setDocBlocks`。如果是业务性内容创作，优先用 `syncast.agent.delegate` 让内部 Agent 完成。
 
 ### 任务和通知
 

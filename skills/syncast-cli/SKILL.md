@@ -24,6 +24,23 @@ Optional: install this skill for Cursor / compatible agents:
 npx skills add latentcat/syncast-skills --skill syncast-cli -y
 ```
 
+Install or refresh the project Agent Action skill when using `syncast project-agent`:
+
+```shell
+npx skills add latentcat/syncast-skills --skill syncast-agent-actions -y
+```
+
+## Skill updates
+
+The Syncast CLI npm package and the Agent skills are updated separately. Installing or updating `syncast-cli` does not update the local `syncast-cli` or `syncast-agent-actions` skill files.
+
+Before operating a project through `syncast project-agent`, and whenever an action/schema/example seems missing or stale, treat `latentcat/syncast-skills` as the source of truth and refresh the relevant skill:
+
+```shell
+npx skills add latentcat/syncast-skills --skill syncast-cli -y
+npx skills add latentcat/syncast-skills --skill syncast-agent-actions -y
+```
+
 ## Step 2: Log in
 
 Run device authorization (opens browser or shows a link + code):
