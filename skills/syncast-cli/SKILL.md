@@ -214,10 +214,32 @@ syncast start
 
 Default image route: use `nano-banana-2`. For complex composition, long text, strict layout, or higher instruction-following needs, prefer `nano-banana-2` with `thinking_level: "High"` when using project Imagine / Agent Actions; with the direct CLI, still pass `--model nano-banana-2` and keep the prompt explicit. Use `nano-banana-pro` only when the user explicitly asks for Pro / Nano Banana Pro, or when the request needs a special style, strong stylization, or a specific art-direction exploration.
 
+Treat image reference and image editing as one capability family: **image input**. If the user provides an existing image and asks to keep a character, reuse style, make a variation, change clothes, change background, improve layout, or edit the image, prefer an image-input-capable image model rather than switching mental models between "reference" and "edit". The default image-input route is still `nano-banana-2`; use `oai-gpt-image-2` when the user explicitly asks for OpenAI/GPT Image 2, mask editing, official API behavior, or strict control over `aspect_ratio`, `resolution`, `quality`, `output_format`, or `mask`.
+
 For complex motion, multi-subject, or action-heavy scenes, prefer the Seedance 2.0 Global route `kittyvibe-seedance2.0global`. Use `kittyvibe-seedance2.0fastglobal` for faster/lower-cost Global previews.
+
+Default video route: use `kittyvibe-seedance2.0pro` for text-to-video, image-to-video, and multi-reference/multimodal video. Do not switch to Veo, Grok, Vidu, HappyHorse, or Kling merely because the user provides images or says "references"; Seedance 2.0 is the default multimodal video route. Use `kittyvibe-seedance2.0fast` only for fast/low-cost previews, and use Global variants for complex action, multi-subject, high-motion, monster, fantasy, or difficult choreography requests.
 
 For ambience, foley, UI clicks, impacts, creature sounds, rain, wind, or other non-musical sound design, prefer `syncast sound-effect` with `fal-ai/elevenlabs/sound-effects/v2`. Keep the final prompt in English; Chinese prompts may be auto-translated server-side, but agents should still write clean English sound-effect prompts by default.
 Use `--duration-seconds`, `--prompt-influence`, and `--loop` for sound-effect controls. Do not pass or expose an output-format option for Eleven sound effects; Syncast pins the backend output format to MP3 44.1kHz / 128kbps.
+
+## Media input capability
+
+When a newer CLI exposes `syncast schema`, check it before building advanced payloads. The schema is the source of truth for which models accept image/video/audio input fields, limits, and examples. If `syncast schema` is unavailable or does not list a media-input flag, do not invent a flag; use Syncast Agent Actions, project Imagine drafts, or the app UI for project asset references and richer payloads.
+
+Stable conceptual mapping for agents:
+
+| User intent | Capability | Default route |
+|-------------|------------|---------------|
+| Generate from text | Text-to-image | `syncast imagine --model nano-banana-2` |
+| Use an existing picture as character/style/layout/input | Image input | `nano-banana-2` with the model's image-input field from schema |
+| Edit an existing picture without a strict mask | Image input | `nano-banana-2` |
+| Mask edit / official OpenAI GPT Image 2 behavior | Image input + mask | `oai-gpt-image-2` |
+| Generate video from text/images/multiple media | Multimodal video input | `kittyvibe-seedance2.0pro` |
+| Fast video preview | Multimodal video input | `kittyvibe-seedance2.0fast` |
+| Complex action / high motion / many subjects | Multimodal video input | `kittyvibe-seedance2.0global` |
+
+Do not classify "image reference" and "image editing" as separate model families. They are both image-input tasks; choose the model by the required controls and then fill the schema-supported input fields.
 
 ## Project / Agent Action models
 
