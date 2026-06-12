@@ -78,6 +78,51 @@ Expected: `logged_in: true` with your username.
 syncast imagine --prompt "a cat on the moon" --model nano-banana-2 --aspect-ratio 16:9
 ```
 
+Use a local image file as a reference/input image:
+
+```shell
+syncast imagine \
+  --prompt "turn this into a studio product photo" \
+  --model nano-banana-2 \
+  --reference-image ./reference.png
+```
+
+For multiple local reference images, repeat `--reference-image`:
+
+```shell
+syncast imagine \
+  --prompt "combine the character from the first image with the outfit style from the second" \
+  --model nano-banana-2 \
+  --reference-image ./character.png \
+  --reference-image ./outfit.png
+```
+
+Use an existing remote filename without uploading again:
+
+```shell
+syncast imagine \
+  --prompt "restyle this image" \
+  --model nano-banana-2 \
+  --reference-remote cli-reference/example.png
+```
+
+Pass advanced image schema fields directly with `--input` or `--input-file`:
+
+```shell
+syncast imagine \
+  --prompt "passport photo" \
+  --model seedream-5-0 \
+  --resolution custom \
+  --width 2400 \
+  --height 3600
+```
+
+```shell
+syncast imagine \
+  --prompt "poster layout" \
+  --input '{"references":[{"asset_id":"ref1","remote_filename":"uploads/ref.png","reference_type":"image"}]}'
+```
+
 ### Video
 
 ```shell
@@ -225,15 +270,20 @@ Use `--duration-seconds`, `--prompt-influence`, and `--loop` for sound-effect co
 
 ## Media input capability
 
-When a newer CLI exposes `syncast schema`, check it before building advanced payloads. The schema is the source of truth for which models accept image/video/audio input fields, limits, and examples. If `syncast schema` is unavailable or does not list a media-input flag, do not invent a flag; use Syncast Agent Actions, project Imagine drafts, or the app UI for project asset references and richer payloads.
+Direct `syncast imagine` supports image input without going through project Agent Actions. For local files on disk, use `--reference-image <path>`; the CLI uploads the file through Syncast's upload API and appends it to `task_request.input.references`. For files already in Syncast/R2, use `--reference-remote <remote_filename>`. Both flags are repeatable.
+
+Use `--input <json>` or `--input-file <path>` to pass arbitrary image schema fields directly into `task_request.input`; these fields are merged with `model_type`, `prompt`, `aspect_ratio`, and `resolution`. CLI convenience flags `--width`, `--height`, and `--quality` write those schema fields directly, which is useful for custom dimensions such as `--resolution custom --width 2400 --height 3600`.
+
+When a newer CLI exposes `syncast schema`, check it before building advanced payloads. The schema is the source of truth for which models accept image/video/audio input fields, limits, and examples. If `syncast schema` is unavailable or incomplete, use the direct passthrough flags above for known backend schema fields; use Syncast Agent Actions, project Imagine drafts, or the app UI only when the task depends on project-local asset selection, UI-only workflows, or richer project context.
 
 Stable conceptual mapping for agents:
 
 | User intent | Capability | Default route |
 |-------------|------------|---------------|
 | Generate from text | Text-to-image | `syncast imagine --model nano-banana-2` |
-| Use an existing picture as character/style/layout/input | Image input | `nano-banana-2` with the model's image-input field from schema |
-| Edit an existing picture without a strict mask | Image input | `nano-banana-2` |
+| Use a local picture as character/style/layout/input | Image input | `syncast imagine --model nano-banana-2 --reference-image ./image.png` |
+| Use an already uploaded picture | Image input | `syncast imagine --model nano-banana-2 --reference-remote <remote_filename>` |
+| Edit an existing picture without a strict mask | Image input | `nano-banana-2` with `--reference-image` or `--reference-remote` |
 | Mask edit / official OpenAI GPT Image 2 behavior | Image input + mask | `oai-gpt-image-2` |
 | Generate video from text/images/multiple media | Multimodal video input | `kittyvibe-seedance2.0pro` |
 | Fast video preview | Multimodal video input | `kittyvibe-seedance2.0fast` |
@@ -243,7 +293,7 @@ Do not classify "image reference" and "image editing" as separate model families
 
 ## Project / Agent Action models
 
-These model IDs require project assets or richer Imagine payloads. Use Syncast Agent Actions, project Imagine drafts, or the app UI rather than a bare `syncast imagine` / `syncast video` command:
+These routes depend on project-local asset selection, draft state, or UI-only workflows. Use Syncast Agent Actions, project Imagine drafts, or the app UI when the task needs those project contexts rather than a bare `syncast imagine` / `syncast video` command:
 
 For image cleanup after multi-round edits, use `recraft-ai/recraft-crisp-upscale`; it repairs noisy, scaly, grainy, or broken texture details without requiring a prompt.
 
