@@ -86,6 +86,21 @@ syncast project-agent wait --ref '{"kind":"agent_chat","projectId":"..."}' --ret
 syncast project-agent asset-download-urls --asset-id "asset-id"
 ```
 
+如果内部 Agent 暂停等待工具审批，外部 Agent 是用户托管主体，可以自己审批，也可以先把问题转交给真实用户后再审批。先列出审批通知：
+
+```bash
+syncast project-agent notifications --type agent_action.approval_requested --limit 5
+```
+
+审批通知会带 `approvalId`、`respondAction` 和 `nextActions`。优先按通知里的 `respondAction` 操作；CLI 便捷命令如下：
+
+```bash
+syncast project-agent approval respond <approvalId> --approve
+syncast project-agent approval respond <approvalId> --deny --feedback "用户拒绝本次生成。"
+```
+
+这会调用项目页里的 `syncast.agent.approval.respond`。只有发起该内部 Agent 任务的同一个外部 Agent 身份可以响应；非 owner 会得到 `approval_actor_mismatch`。用户 UI 仍可兜底处理，谁先响应谁生效。
+
 这条路径的职责边界：
 
 - 本 skill 负责告诉外部 Agent 怎么理解 Syncast 项目、选择 action、组织 GraphQL / input。
@@ -126,11 +141,13 @@ const started = await window.__syncastAgent.run("syncast.agent.delegate", {
 5. 等待完成：
 
 ```ts
-await window.__syncastAgent.wait(started.data.ref, {
+const done = await window.__syncastAgent.wait(started.data.ref, {
   timeoutMs: 30 * 60 * 1000,
   returnResult: true
 });
 ```
+
+如果等待的是内部 Agent chat/delegate 任务，最终可见回复在 `done.data.result.text`，短摘要在 `done.data.result.textPreview`。CLI 的 `syncast project-agent wait --return-result` 也返回同样的 JSON 结构；默认 JSON 面向 Agent，人工查看可加 `--format human`。
 
 6. 读取并验收结果：
 
@@ -151,8 +168,11 @@ await window.__syncastAgent.run("syncast.docs.readForAgent", {
 - 输入中引用资产和文档时，使用真实 ID 对应的 `@{asset:<assetId>}`、`@{doc:<docId>|<displayName>}`、`@{doc-section:<docId>:<sectionId>|<displayName>}`；发起图片/视频生成前必须用 `syncast.assets.resolveReferences` 等 action 校验引用。
 - 需要把项目资产交给外部 Agent 自行下载时，使用 `syncast.assets.downloadUrls` 或 CLI 便捷命令 `syncast project-agent asset-download-urls --asset-id ...` 获取临时签名 URL。Action 只返回链接和资产元数据，不在浏览器内下载文件；签名 URL 约 1 小时有效，外部 Agent 自行决定下载方式和保存位置。
 - 发起生成时使用 `syncast.imagine.submit`，它会走和手动 Imagine 面板一致的前端入队路径；需要指定生成完成后的资源名称时传 `targetAssetName`，一般开启 `optimizePrompt: true`。提交会内置生成前校验，返回 `validation` 和 `submitted.modelPrompt/finalModelInput`；如果 `validation.ok` 不为 true，或存在 `leftoverTokens/unresolvedMentions`，不得认为生成输入有效。
+- 当内部 Agent 或 action bridge 返回 `agent_action.approval_requested` 通知时，外部 Agent 可以自行决定是否批准，也可以先询问用户；若批准，调用 `syncast.agent.approval.respond` 或 CLI `syncast project-agent approval respond <approvalId> --approve`。审批只对该外部 Agent 托管的 pending request 有效。
 - 如果只是给用户多个生成建议、让用户挑选，或用户尚未确认扣费生成，不要调用 `syncast.imagine.submit`。使用 `syncast.imagine.draftMarkdown`，或在内部 Agent 回复中输出语言标记为 `imagine` 的 fenced code block；内容使用和 `imagine(items)` 完全相同的 JSON 对象，并确保每个 item 都有非空 `model_type` 和 `prompt` / `prompt_raw`。引用资产优先写 `references: [{ asset_id, reference_type }]`；兼容旧别名 `reference_assets` / `referenceAssetIds`，但不要编造 asset id。Syncast 会把它渲染成“待生成 Imagine 参数”控件，显示参考素材，用户可复制或手动打开 Imagine 编辑器。
 - Seedance 2.0 待生成视频参数如果要使用首帧/尾帧，优先写 `first_frame` / `last_frame`；兼容 `content[]` 时必须在媒体项里带真实 `asset_id` 和 `role: "first_frame"` / `"last_frame"`。Syncast 会导入到首尾帧模式；普通参考素材 `reference_image/video/audio` 会导入到智能参考模式。
+- 一镜到底、视频续接、镜头接镜头、或任何要求上一段尾帧与下一段首帧严格对齐的 Seedance 2.0 首尾帧任务，必须开启几何对齐：调用 `syncast.imagine.submit` 时写 `params: { preserve_geometry: true }`；输出 fenced `imagine` JSON 或 `syncast.imagine.draftMarkdown.items` 时，在对应 item 的模型参数里写 `"preserve_geometry": true`。不要用智能参考模式替代首尾帧模式来做严格续接。
+- 如果 Agent 自己负责连续生成一镜到底片段，发起每一段真实生成后必须等待完成，再读取结果或抽取尾帧安排下一段：可在 `syncast.imagine.submit` 传 `wait: true, timeoutMs: 30 * 60 * 1000`，或提交后调用 `window.__syncastAgent.wait(ref, { returnResult: true })` / `syncast.imagine.wait`。只有生成完成后才能把该段结果当作下一段首帧来源。
 - 图片模型优先 Nano Banana 2 / OpenAI GPT Image 2；图片生成一般只使用 2K，质量使用 `auto`，这是默认最佳组合。
 - 音频中的“音乐 / 歌曲 / BGM / 配乐”优先 Lyria；音频中的“音效 / 环境声 / 拟音 / UI 声 / 冲击音 / loop ambience”优先 `fal-ai/elevenlabs/sound-effects/v2`。这个音效模型最终应使用英文提示词；如用户输入中文，提交链路会自动翻成英文，但外部 Agent 仍应默认直接编写英文音效提示词。Agent Action 传参时使用顶层 `durationSeconds`、`promptInfluence`、`loop`，不要把这些音效参数塞进二级 `params`；`output_format` 不对外暴露，后端固定使用 MP3 44.1kHz / 128kbps。
 - 图片超分/修复模型在 `syncast.imagine.models` 的 `category: "upscale"` 中；`recraft-ai/recraft-crisp-upscale` 适合修复 Nano Banana Pro / GPT Image 2 多轮编辑后的鳞片、噪点、颗粒和崩坏质感，不需要 prompt。

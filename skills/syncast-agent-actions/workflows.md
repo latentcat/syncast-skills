@@ -108,6 +108,8 @@ const done = await window.__syncastAgent.wait(started.data.ref, {
 });
 ```
 
+内部 Agent 的最终可见文本在 `done.data.result.text`，短摘要在 `done.data.result.textPreview`。通过 CLI 调用时，`syncast project-agent wait --return-result` 返回同样结构；人工查看可加 `--format human`。
+
 读取生成的文档：
 
 ```ts

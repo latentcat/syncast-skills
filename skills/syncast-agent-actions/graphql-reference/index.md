@@ -30,6 +30,7 @@ syncast project-agent run syncast.doc.graphql --input '{"query":"query { docPage
 | Agents | [agents.md](agents.md) | 自定义 Agent 定义 |
 | Skills | [skills.md](skills.md) | 自定义 Skill 定义 |
 | Prompt Templates | [prompt-templates.md](prompt-templates.md) | 自定义提示词模板 |
+| Imagine Optimize Presets | [imagine-optimize-presets.md](imagine-optimize-presets.md) | Imagine 提示词优化预设（Sparkles 改写风格） |
 
 ## Rules
 

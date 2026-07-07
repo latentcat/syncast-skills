@@ -30,6 +30,9 @@ Install or refresh the project Agent Action skill when using `syncast project-ag
 npx skills add latentcat/syncast-skills --skill syncast-agent-actions -y
 ```
 
+CLI releases are triggered by Git tags named `syncast-cli-v<version>` where
+`<version>` must match `node_packages/syncast-cli/package.json`.
+
 ## Skill updates
 
 The Syncast CLI npm package and the Agent skills are updated separately. Installing or updating `syncast-cli` does not update the local `syncast-cli` or `syncast-agent-actions` skill files.
@@ -154,6 +157,48 @@ syncast task status <task_id>
 
 # Cancel
 syncast task cancel <task_id>
+```
+
+## Project Agent bridge
+
+Use `syncast project-agent` when an external Agent needs to operate an opened
+Syncast project through the narrow Agent Action bridge instead of injecting
+arbitrary browser JavaScript.
+
+```shell
+syncast project-agent serve
+syncast project-agent pages
+syncast project-agent capabilities
+syncast project-agent run syncast.project.inspect --input '{"limit":20}'
+```
+
+If an internal Syncast Agent pauses on an action approval, list pending approval
+notifications:
+
+```shell
+syncast project-agent notifications \
+  --type agent_action.approval_requested \
+  --limit 5
+```
+
+Each approval notification includes `approvalId` and `respondAction`. The
+external Agent may decide itself, or ask the human user first, then respond:
+
+```shell
+syncast project-agent approval respond <approvalId> --approve
+syncast project-agent approval respond <approvalId> --deny --feedback "User rejected this generation."
+```
+
+The CLI command calls `syncast.agent.approval.respond` in the connected project
+page. It only succeeds for the external Agent identity that owns the delegated
+internal Agent task; other external Agents receive `approval_actor_mismatch`.
+
+To wait for a specific approval resolution notification, pass a type filter:
+
+```shell
+syncast project-agent wait \
+  --ref '{"kind":"agent_action_approval","projectId":"...","taskId":"<approvalId>"}' \
+  --type agent_action.approval_resolved
 ```
 
 ## Template management (admin only)

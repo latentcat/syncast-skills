@@ -85,6 +85,7 @@ GraphQL 字段采用按模块渐进式披露。先调用 `syncast.doc.graphql.sc
 | Agents | [graphql-reference/agents.md](graphql-reference/agents.md) | `agents`、`createAgent`、`deleteAgent` |
 | Skills | [graphql-reference/skills.md](graphql-reference/skills.md) | `customSkills`、`createCustomSkill` |
 | Prompt Templates | [graphql-reference/prompt-templates.md](graphql-reference/prompt-templates.md) | `customPromptTemplates`、`createCustomPromptTemplate` |
+| Imagine Optimize Presets | [graphql-reference/imagine-optimize-presets.md](graphql-reference/imagine-optimize-presets.md) | `imagineOptimizePresets`、`createImagineOptimizePreset` |
 
 **GraphQL 字段命名**：monodoc GraphQL 对外暴露 **camelCase** 字段名，不要使用 Loro 内部的 snake_case。常见对应关系：
 
@@ -279,6 +280,10 @@ await window.__syncastAgent.run("syncast.assets.downloadUrls", {
 
 Seedance 2.0 待生成视频参数如果要使用首尾帧，优先写 `first_frame` / `last_frame`；如果沿用 Ark 兼容 `content[]`，媒体项必须包含真实 `asset_id` 和 `role: "first_frame"` / `"last_frame"`。Syncast 会把它导入到首尾帧模式；`role: "reference_image"` / `"reference_video"` / `"reference_audio"` 会导入到智能参考模式。
 
+一镜到底、视频续接、镜头接镜头、或任何要求上一段尾帧与下一段首帧严格对齐的 Seedance 2.0 首尾帧任务，必须开启几何对齐。调用 `syncast.imagine.submit` 时写 `params: { preserve_geometry: true }`；使用 `syncast.imagine.draftMarkdown` 的 `drafts` 形态时也放在 `params`；如果输出 fenced `imagine` JSON 或 `draftMarkdown.items`，则在对应 item 的模型参数里写 `"preserve_geometry": true`。不要用智能参考模式替代首尾帧模式来做严格续接。
+
+如果 Agent 自己负责连续生成一镜到底片段，发起每一段真实生成后必须等待完成，再读取结果或抽取尾帧安排下一段：可在 `syncast.imagine.submit` 传 `wait: true, timeoutMs: 30 * 60 * 1000`，或提交后调用 `window.__syncastAgent.wait(ref, { returnResult: true })` / `syncast.imagine.wait`。只有生成完成后才能把该段结果当作下一段首帧来源。
+
 提示词优化会复用前端的 `imagine_prompt_optimize` Response API 和白名单过滤逻辑。输入中的资产引用应使用内部 token 形式 `@{asset:<assetId>}`；如果外部 Agent 手里只有人类可读名称，先调用 `syncast.assets.resolveReferences` 解析成 assetId，再写入 prompt 或传入 `references`。优化结果会经过 sanitize：不允许模型新增未在原始 prompt / references / 首尾帧中的资产或文档 token。
 
 `syncast.imagine.submit` 支持 `optimizePrompt: true`。开启后会先执行同一条优化链路，再用优化后的 prompt 提交生成；返回中的 `promptOptimization` 会包含 original / optimized / raw optimized，`submitted` 会记录实际提交给生成器的 `modelType`、`prompt`、`params`、`references`、`count` 等参数。对 `fal-ai/elevenlabs/sound-effects/v2`，这条链路还会在提交前自动把中文 prompt 翻成英文，并把顶层 `durationSeconds`、`promptInfluence`、`loop` 合并为后端模型输入；`output_format` 由后端固定，不是 Agent 参数。外部 Agent 如果想模拟人类“先写参数参考提示词 -> 点优化提示词 -> 再生成”的流程，优先使用这个封装。
@@ -308,10 +313,12 @@ validation.unresolvedMentions.length === 0
 | --- | --- | --- | --- | --- |
 | `syncast.agent.chat.submit` | edit | `{ prompt, channelId?, channel?, attachments?, rawPrompt?, includeHistory?, wait?, notify?, timeoutMs? }` | `{ localTaskId, messageId, ref }`；等待时包含 notification/result | 通过现有前端聊天路径发起内部 Agent 对话 |
 | `syncast.agent.chat.wait` | read | `{ ref, timeoutMs? }` | 完成/失败通知 | 等待内部 Agent 回复 |
-| `syncast.agent.chat.result` | read | `{ ref }` | assistant 消息摘要 | 读取内部 Agent 最终消息 |
+| `syncast.agent.chat.result` | read | `{ ref }` | chat 消息摘要，含 `text` / `textPreview` | 读取内部 Agent 最终消息 |
 | `syncast.agent.delegate` | edit | `{ goal?, prompt?, channel?, attachments?, includeHistory?, wait?, notify?, timeoutMs? }` | `{ localTaskId, messageId, ref }`；等待时包含 notification/result | 外部 Agent 最推荐使用的业务委托入口 |
 
 `syncast.agent.delegate` 允许只传 `goal`，它会自动创建/复用专用的自动化 chat channel，不会默认使用人类当前正在查看的频道，也不会默认携带整段频道历史。只有当外部 Agent 明确需要延续某个频道上下文时，才传 `channelId/channelTitle` 和 `includeHistory: true`。
+
+当 `syncast.agent.chat.submit` 或 `syncast.agent.delegate` 使用 `wait: true`，返回的 `data.result.text` 是内部 Agent 最终可见回复，`data.result.textPreview` 是短摘要。单独等待时，`syncast.agent.chat.wait` 只返回通知；需要同时补拉结果请使用 `window.__syncastAgent.wait(ref, { returnResult: true })` 或 CLI 的 `syncast project-agent wait --ref <json> --return-result`。
 
 ## Browser Bridge 便捷 API
 
@@ -323,7 +330,7 @@ validation.unresolvedMentions.length === 0
 | `window.__syncastAgent.currentAgent()` | 查看当前 session 中的外部 Agent 身份 |
 | `window.__syncastAgent.clearAgent()` | 清除当前外部 Agent 身份，通常只用于调试 |
 | `window.__syncastAgent.capabilities()` | 获取所有 action 名称、说明、权限 |
-| `window.__syncastAgent.wait(ref, { timeoutMs?, returnResult? })` | 等待任务通知；`returnResult: true` 时同时补拉结果 |
+| `window.__syncastAgent.wait(ref, { timeoutMs?, returnResult? })` | 等待任务通知；`returnResult: true` 时同时补拉结果，Agent 文本位于 `data.result.text` |
 | `window.__syncastAgent.subscribe(filter, callback)` | 订阅完成/失败通知，返回 unsubscribe |
 | `window.__syncastAgent.notifications.list({ filter?, limit? })` | 拉取已记录通知 |
 | `window.__syncastAgent.history.list({ limit? })` | 拉取 Agent Action 调用历史 |
@@ -349,6 +356,8 @@ validation.unresolvedMentions.length === 0
 | `syncast project-agent history` | `window.__syncastAgent.history.list(...)` |
 
 CLI Bridge 是 transport，不是新的业务 API。它不会替代本文件里的 action 语义，也不会暴露任意 `evaluate`。
+
+CLI 默认输出稳定 JSON，便于外部 Agent 解析。内部 Agent 的返回文本读取 `data.result.text`；人工查看可加全局参数 `--format human` 获得摘要输出。
 
 ## 开发者调试器
 
@@ -385,6 +394,8 @@ const done = await window.__syncastAgent.wait(started.data.ref, {
   timeoutMs: 30 * 60 * 1000,
   returnResult: true
 });
+
+const agentText = done.data.result?.text;
 
 const docsIndex = await window.__syncastAgent.run("syncast.docs.readForAgent", {
   mode: "index",
