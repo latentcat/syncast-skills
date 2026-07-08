@@ -165,6 +165,7 @@ await window.__syncastAgent.run("syncast.docs.readForAgent", {
 - 只有在需要精确读写项目数据，且不需要内部 Agent 业务推理时，才使用 `syncast.doc.graphql`。它是动态权限：query 是 read，mutation 会要求 edit 并落盘。
 - 读取文档优先用 `syncast.docs.readForAgent`，它返回 canonical `docRead` 结构；章节读取使用真实 `sectionId`，分页使用 `nextCursor`，去重使用 `contextKey/loadedContextKeys`。
 - GraphQL query/mutation 中的字段名必须使用 **camelCase**（如 `updatedAt`、`parentId`），不要用 Loro 内部的 snake_case（如 `updated_at`）。可先调用 `syncast.doc.graphql.explain` 获取正确示例。
+- Agent-facing GraphQL 和资产 action 会过滤隐藏的 3D/model 资产（`glb` / `stl` / `fbx`）。如果 `asset`、`assetId`、文件夹、时间轴、画布或消息里的资产字段返回 null / 缺失，表示该资产不对外部 Agent 可见，不要绕过 action layer 去读 raw Loro 或构造 mutation 反查 `remoteFilename`。
 - 输入中引用资产和文档时，使用真实 ID 对应的 `@{asset:<assetId>}`、`@{doc:<docId>|<displayName>}`、`@{doc-section:<docId>:<sectionId>|<displayName>}`；发起图片/视频生成前必须用 `syncast.assets.resolveReferences` 等 action 校验引用。
 - 需要把项目资产交给外部 Agent 自行下载时，使用 `syncast.assets.downloadUrls` 或 CLI 便捷命令 `syncast project-agent asset-download-urls --asset-id ...` 获取临时签名 URL。Action 只返回链接和资产元数据，不在浏览器内下载文件；签名 URL 约 1 小时有效，外部 Agent 自行决定下载方式和保存位置。
 - 发起生成时使用 `syncast.imagine.submit`，它会走和手动 Imagine 面板一致的前端入队路径；需要指定生成完成后的资源名称时传 `targetAssetName`，一般开启 `optimizePrompt: true`。提交会内置生成前校验，返回 `validation` 和 `submitted.modelPrompt/finalModelInput`；如果 `validation.ok` 不为 true，或存在 `leftoverTokens/unresolvedMentions`，不得认为生成输入有效。

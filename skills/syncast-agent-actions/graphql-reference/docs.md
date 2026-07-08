@@ -83,6 +83,11 @@ mutation CreateDoc($title: String!, $parentId: String, $key: String) {
 }
 ```
 
+For template-like project skeleton setup, always provide a stable
+`idempotencyKey` such as `project-template:<templateId>:doc:<docId>`. Re-running
+the same setup should reuse the same page instead of creating duplicates. After
+creating the page, write content with `patchDoc` or `setDocBlocks`.
+
 Move a document under another document:
 
 ```graphql

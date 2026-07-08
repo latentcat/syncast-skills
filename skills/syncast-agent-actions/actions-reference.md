@@ -232,6 +232,8 @@ await window.__syncastAgent.run("syncast.assets.downloadUrls", {
 
 文档写入如果是简单结构化 mutation，可用 `syncast.doc.graphql` 的 `createDocPage`、`updateDocPage`、`moveDocPage`、`moveDocPageBefore`、`moveDocPageAfter`、`deleteDocPage`、`patchDoc`、`setDocBlocks`。如果是业务性内容创作，优先用 `syncast.agent.delegate` 让内部 Agent 完成。
 
+项目骨架或模板式初始化不要直接写 Loro、IndexedDB 或后端数据库。复用已发布的模板包时，走 App/Library/CLI 的项目模板包导入路线；如果用户明确要求外部 Agent 在当前项目内创建结构，使用 GraphQL 的幂等 mutation：Docs 用 `createDocPage(..., idempotencyKey)` 建树，再用 `patchDoc` 或 `setDocBlocks` 写内容；资源目录用 `ensureFolderPath(input: { path: "/Shots/Act 1" })` 创建或复用文件夹，需要搬运资产时再用 `moveAssetsToFolder` 的 `folderPath`。
+
 ### 任务和通知
 
 | Action | 权限 | 输入 | 输出 | 用途 |
@@ -315,10 +317,13 @@ validation.unresolvedMentions.length === 0
 | `syncast.agent.chat.wait` | read | `{ ref, timeoutMs? }` | 完成/失败通知 | 等待内部 Agent 回复 |
 | `syncast.agent.chat.result` | read | `{ ref }` | chat 消息摘要，含 `text` / `textPreview` | 读取内部 Agent 最终消息 |
 | `syncast.agent.delegate` | edit | `{ goal?, prompt?, channel?, attachments?, includeHistory?, wait?, notify?, timeoutMs? }` | `{ localTaskId, messageId, ref }`；等待时包含 notification/result | 外部 Agent 最推荐使用的业务委托入口 |
+| `syncast.agent.approval.respond` | edit | `{ approvalId, approved, feedback? }` | 审批结果摘要 | 响应该外部 Agent 托管的内部 Agent action approval |
 
 `syncast.agent.delegate` 允许只传 `goal`，它会自动创建/复用专用的自动化 chat channel，不会默认使用人类当前正在查看的频道，也不会默认携带整段频道历史。只有当外部 Agent 明确需要延续某个频道上下文时，才传 `channelId/channelTitle` 和 `includeHistory: true`。
 
 当 `syncast.agent.chat.submit` 或 `syncast.agent.delegate` 使用 `wait: true`，返回的 `data.result.text` 是内部 Agent 最终可见回复，`data.result.textPreview` 是短摘要。单独等待时，`syncast.agent.chat.wait` 只返回通知；需要同时补拉结果请使用 `window.__syncastAgent.wait(ref, { returnResult: true })` 或 CLI 的 `syncast project-agent wait --ref <json> --return-result`。
+
+当内部 Agent 返回 `agent_action.approval_requested` 通知时，通知里会包含 `approvalId` / `respondAction` / `nextActions`。同一个外部 Agent 身份可以调用 `syncast.agent.approval.respond` 批准或拒绝；非 owner 会得到 `approval_actor_mismatch`。
 
 ## Browser Bridge 便捷 API
 
@@ -352,6 +357,8 @@ validation.unresolvedMentions.length === 0
 | `syncast project-agent capabilities` | `window.__syncastAgent.capabilities()` |
 | `syncast project-agent run <action>` | `window.__syncastAgent.run(actionName, input, options)` |
 | `syncast project-agent asset-download-urls --asset-id <id>` | `window.__syncastAgent.run("syncast.assets.downloadUrls", input)` |
+| `syncast project-agent notifications --type <type>` | `window.__syncastAgent.notifications.list(...)` |
+| `syncast project-agent approval respond <approvalId> --approve/--deny` | `window.__syncastAgent.run("syncast.agent.approval.respond", input)` |
 | `syncast project-agent wait --ref <json>` | `window.__syncastAgent.wait(ref, options)` |
 | `syncast project-agent history` | `window.__syncastAgent.history.list(...)` |
 

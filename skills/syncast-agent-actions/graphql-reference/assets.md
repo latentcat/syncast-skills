@@ -2,6 +2,8 @@
 
 用于精确读取和整理项目资源、文件夹。生成前引用校验优先用封装 action `syncast.assets.resolveReferences`；需要批量整理资源树时再用本模块 mutation。
 
+Agent-facing asset queries 会过滤隐藏的 3D/model 资产（`glb` / `stl` / `fbx`）。过滤覆盖 top-level `asset/assets/assetsByIds/folders/assetBrowse`，也覆盖时间轴、画布、频道消息等 nested `asset` / `assetId` / asset ID map 输出；返回 null 或缺失时不要绕过 action layer 反查 raw Loro。
+
 ## Fields
 
 Queries:
@@ -67,7 +69,30 @@ query AssetsByIds($ids: [String!]!) {
 
 ## Mutations
 
-Ensure a folder path and move assets into it:
+Ensure a folder path:
+
+```graphql
+mutation EnsureFolder($input: EnsureFolderPathInput!) {
+  ensureFolderPath(input: $input) {
+    folderId
+    path
+    createdCount
+    segments { id name path parentId }
+  }
+}
+```
+
+Variables:
+
+```json
+{
+  "input": {
+    "path": "/Shots/Act 1"
+  }
+}
+```
+
+Move assets into an existing or newly-created folder path:
 
 ```graphql
 mutation MoveAssets($input: MoveAssetsToFolderInput!) {

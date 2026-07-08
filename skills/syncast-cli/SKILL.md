@@ -201,6 +201,70 @@ syncast project-agent wait \
   --type agent_action.approval_resolved
 ```
 
+## Library resource packages
+
+Normal users publish reusable resources through `syncast library publish`, not
+the admin-only `syncast template` commands. This is the route used by local
+resource packages, private shares, team libraries, and public-review
+submissions.
+
+```shell
+# Personal or team library item
+syncast library publish ./bundle.json --type project_template --target personal
+syncast library publish ./bundle.json --type project_template --target team:<teamId>
+
+# Public template review submission
+syncast library publish ./bundle.json --type project_template --target public \
+  --source-project-id <projectId>
+```
+
+`project_template` is the product alias for the stored
+`project_template_bundle` type. Personal and team targets write the complete
+package into workspace library item `data`. Public targets send the same package
+through `typedData.content`, and the backend preserves it into the reviewed
+template content.
+
+Project template bundles may carry ordinary bundle resources plus a reusable
+project skeleton:
+
+```json
+{
+  "type": "project_template",
+  "id": "short-drama-skeleton",
+  "name": "Short Drama Skeleton",
+  "agents": [{ "id": "writer" }],
+  "skills": [{ "id": "continuity-checker" }],
+  "promptTemplates": [],
+  "projectSpecs": [],
+  "standardProjectTemplate": {
+    "schemaVersion": 1,
+    "docs": [
+      {
+        "id": "story-bible",
+        "title": "Story Bible",
+        "body": "# Story Bible\n\nProduction rules."
+      },
+      {
+        "id": "episode-outline",
+        "parentId": "story-bible",
+        "title": "Episode Outline",
+        "body": "Scene beats."
+      }
+    ],
+    "resourceDirs": [
+      { "path": "References/Characters" },
+      { "path": "Shots/Act 1" }
+    ]
+  }
+}
+```
+
+Use camel-case `standardProjectTemplate` for new packages. Legacy
+`standard_project_template` is accepted, but agents should not split skeleton
+Docs or resource folders into ad hoc sidecar files. Import/export/share/public
+submission routes must keep the skeleton inside the package content so other
+clients can discover and consume it.
+
 ## Template management (admin only)
 
 All template commands require admin privileges. Non-admin users will receive a permission error.
@@ -285,6 +349,12 @@ The JSON file must be an array of objects with required fields `template_id`, `c
 | `character` | Character templates (persona, appearance) |
 | `image_prompt` | Image generation prompt templates |
 | `agent_prompt` | Agent system prompt templates |
+| `custom_agent` | User or team Agent package submitted for review |
+| `custom_skill` | User or team Skill package submitted for review |
+| `imagine_optimize_preset` | Imagine prompt optimization preset |
+| `doc_spec` | Single project document/spec template |
+| `project_spec_bundle` | Bundle of project specs and related setup |
+| `project_template_bundle` | Full project template bundle, optionally including `standardProjectTemplate` |
 
 ## Local file sync (legacy)
 
