@@ -153,6 +153,35 @@ const refs = await window.__syncastAgent.run("syncast.assets.resolveReferences",
 
 ## 发起 Imagine
 
+先读与本次产物相关的项目规范，再查当前 Assets 目录。如果规范明确指定了归档路径，优先复用已有目录的真实 ID：
+
+```ts
+await window.__syncastAgent.run("syncast.docs.readForAgent", {
+  mode: "index"
+});
+
+const tree = await window.__syncastAgent.run("syncast.assets.browse", {
+  depth: 2,
+  includeAssets: false
+});
+```
+
+只在用户或规范明确要求的路径不存在时，才幂等创建/复用路径：
+
+```ts
+const ensured = await window.__syncastAgent.run("syncast.doc.graphql", {
+  query: `mutation EnsureFolder($input: EnsureFolderPathInput!) {
+    ensureFolderPath(input: $input) { folderId path createdCount }
+  }`,
+  variables: { input: { path: "/Characters/Designs" } },
+  idempotencyKey: "external-agent:characters-designs"
+});
+
+const targetFolderId = ensured.data.data.ensureFolderPath.folderId;
+```
+
+不要用文件夹名或路径替代 `folderId`。没有明确归档要求时省略 `targetFolderId`，结果进根目录。
+
 发起前建议先估算积分：
 
 ```ts
@@ -169,6 +198,7 @@ const started = await window.__syncastAgent.run("syncast.imagine.submit", {
   references: [{ name: "主视觉.png" }],
   count: 2,
   targetAssetName: "项目概念板A",
+  targetFolderId,
   optimizePrompt: true,
   wait: false
 });
@@ -182,7 +212,7 @@ await window.__syncastAgent.wait(started.data.ref, {
 });
 ```
 
-`targetAssetName` 是生成完成后写入资源库的资产名称，不会影响模型生成内容。批量生成时系统会自动追加序号。
+`targetAssetName` 是生成完成后写入资源库的资产名称，`targetFolderId` 是唯一初始归档目录，两者都不影响模型生成内容。命名和分类可由规范确定时应直接传入；只有归类必须依赖实际生成内容时，才先落根目录、验收后再移动。批量生成时系统会为名称自动追加序号。
 
 提交成功后检查返回值：
 
@@ -223,6 +253,7 @@ await window.__syncastAgent.run("syncast.timeline.generationSlots.createBatch", 
       prompt: "生成男主角角色设定图，半身，电影感。",
       modelType: "nano-banana-2",
       targetAssetName: "男主角A",
+      targetFolderId: "existing-folder-id",
       durationSeconds: 4
     },
     {
@@ -231,13 +262,14 @@ await window.__syncastAgent.run("syncast.timeline.generationSlots.createBatch", 
       prompt: "生成女主角角色设定图，半身，电影感。",
       modelType: "nano-banana-2",
       targetAssetName: "女主角A",
+      targetFolderId: "existing-folder-id",
       durationSeconds: 4
     }
   ]
 });
 ```
 
-用户从 slot 手动生成时，会沿用 slot input 里的 `targetAssetName`；如果外部 Agent 已获得用户确认，也可以调用 `syncast.timeline.generationSlots.submit` 直接从某个 slot 发起生成。
+用户从 slot 手动生成时，会沿用 slot input 里的 `targetAssetName` 和 `targetFolderId`；如果外部 Agent 已获得用户确认，也可以调用 `syncast.timeline.generationSlots.submit` 直接从某个 slot 发起生成。
 
 ## 关键帧生成
 

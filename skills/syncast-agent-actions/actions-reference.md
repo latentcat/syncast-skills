@@ -147,7 +147,7 @@ await window.__syncastAgent.run("syncast.doc.graphql", {
 | `syncast.timeline.create` | edit | `{ name, width?, height?, frameRate? }` | 新时间轴 | 创建可排布 AI Slot 的时间轴 |
 | `syncast.timeline.generationSlots.create` | edit | `{ timelineId, slot }` | 新 draft slot | 添加单个待生成块，不立即扣费生成 |
 | `syncast.timeline.generationSlots.createBatch` | edit | `{ timelineId?, timelineName?, width?, height?, frameRate?, slots[] }` | 时间轴和一组 draft slots | 一次性排一组镜头/角色/素材占位块 |
-| `syncast.timeline.generationSlots.updateInput` | edit | `{ timelineId, clipId, patch }` | 更新后的 slot | 修改 prompt、modelType、references、targetAssetName 等 |
+| `syncast.timeline.generationSlots.updateInput` | edit | `{ timelineId, clipId, patch }` | 更新后的 slot | 修改 prompt、modelType、references、targetAssetName、targetFolderId 等 |
 | `syncast.timeline.generationSlots.submit` | edit | `{ timelineId, clipId, channelId?, wait?, timeoutMs? }` | Imagine submit 结果 | 明确授权后，直接从 slot input 发起生成 |
 
 `slot` 的核心字段：
@@ -165,11 +165,12 @@ await window.__syncastAgent.run("syncast.doc.graphql", {
   loop?: true,
   references?: [{ assetId: "..." }],
   targetAssetName?: "男主角A",
+  targetFolderId?: "existing-folder-id",
   frameDuration?: 96
 }
 ```
 
-`targetAssetName` 会写入 slot input。用户后续从这个 slot 手动点击生成时，生成任务会携带该名称；生成完成后新资产会自动命名为这个值。批量生成时会自动加序号，避免多个产物同名。
+`targetAssetName` 和 `targetFolderId` 会写入 slot input。用户后续从这个 slot 手动点击生成时，生成任务会沿用名称和已验证的文件夹 ID；生成完成后新资产会直接落入该目录。批量生成时名称会自动加序号。
 
 ### 频道和消息
 
@@ -261,9 +262,9 @@ await window.__syncastAgent.run("syncast.assets.downloadUrls", {
 | --- | --- | --- | --- | --- |
 | `syncast.imagine.models` | read | `{ disclosure?, category?, includeSchemas? }`，`category` 支持 `image` / `video` / `audio` / `upscale` / `all` | 渐进式模型披露 | 默认只看推荐模型；需要时再展开完整模型 |
 | `syncast.imagine.estimateCredits` | read | `{ modelType, params?, count? }` | 本地积分估算、当前余额、是否足够 | 发起生成前预估成本 |
-| `syncast.imagine.draftMarkdown` | read | `{ items: {"1": {model_type, prompt, ...}} }` 或 `{ drafts: [{ index?, title?, targetAssetName?, modelType?, prompt?, params?, input? }] }`；每项最终必须有 `model_type` 和 `prompt` | `markdown` + `items`，语言标记为 `imagine` | 给用户多个待生成方案，不创建任务、不扣费 |
+| `syncast.imagine.draftMarkdown` | read | `{ items: {"1": {model_type, prompt, target_folder_id?, ...}} }` 或 `{ drafts: [{ index?, title?, targetAssetName?, targetFolderId?, modelType?, prompt?, params?, input? }] }`；每项最终必须有 `model_type` 和 `prompt` | `markdown` + `items`，语言标记为 `imagine` | 给用户多个待生成方案，不创建任务、不扣费 |
 | `syncast.imagine.optimizePrompt` | read | `{ prompt, modelType, params?, references?, firstFrameAssetId?, lastFrameAssetId?, locale? }` | `{ optimizedPrompt, rawOptimizedPrompt, modelType }` | 复用人类前端“优化提示词”按钮链路 |
-| `syncast.imagine.submit` | edit | `{ modelType, prompt, params?, durationSeconds?, promptInfluence?, loop?, references?, count?, channelId?, targetAssetName?, optimizePrompt?, optimizePromptLocale?, sourceSlot?, wait?, timeoutMs? }` | `{ messageId, taskIds, ref, billingEstimate, validation, promptOptimization, submitted }`；等待时包含 notification/result | 可选先优化提示词，再通过现有前端 Imagine 入队路径发起生成 |
+| `syncast.imagine.submit` | edit | `{ modelType, prompt, params?, durationSeconds?, promptInfluence?, loop?, references?, count?, channelId?, targetAssetName?, targetFolderId?, optimizePrompt?, optimizePromptLocale?, sourceSlot?, wait?, timeoutMs? }` | `{ messageId, taskIds, ref, billingEstimate, validation, promptOptimization, submitted }`；等待时包含 notification/result | 可选先优化提示词，再通过现有前端 Imagine 入队路径发起生成 |
 | `syncast.imagine.submitToChannel` | edit | 同 `submit` | 同 `submit` | 明确表达“提交到解析后的频道” |
 | `syncast.imagine.wait` | read | `{ ref, timeoutMs? }` | 完成/失败通知 | 等待生成完成 |
 | `syncast.imagine.result` | read | `{ ref }` | 生成消息摘要 | 读取生成结果 |
@@ -276,7 +277,7 @@ await window.__syncastAgent.run("syncast.assets.downloadUrls", {
 
 ```imagine
 {
-  "1": {"asset_name": "角色方案 A", "model_type": "nano-banana-2", "prompt": "...", "references": [{"asset_id": "asset-id", "reference_type": "image"}]},
+  "1": {"asset_name": "角色方案 A", "target_folder_id": "existing-folder-id", "model_type": "nano-banana-2", "prompt": "...", "references": [{"asset_id": "asset-id", "reference_type": "image"}]},
   "2": {"asset_name": "角色方案 B", "model_type": "nano-banana-2", "prompt": "...", "references": [{"asset_id": "asset-id", "reference_type": "image"}]}
 }
 ```
@@ -306,6 +307,10 @@ validation.unresolvedMentions.length === 0
 `references` 可以传资源 ID、资源名称，或 `{ assetId, name }`。Action 会自动解析资源，不需要外部 Agent 自己拼前端内部数据。
 
 `targetAssetName` 用于指定生成完成后创建的 Syncast 资产名称，例如 `{ targetAssetName: "男主角A" }`。它不传给模型，只作为前端任务元数据进入完成处理链路；如果生成复用了同一个 `remoteFilename` 的既有资产，也会把该资产重命名为目标名称。批量生成会自动追加序号。
+
+`targetFolderId` 用于指定新资产的唯一初始归档位置。它必须是当前项目中已确认存在的真实 folder ID；省略表示根目录，不要传 `__ROOT__`、名称或路径。提交前应先读相关规范 Docs，并用 `syncast.assets.folders` / `syncast.assets.browse` 查当前结构；只有规范或用户明确要求缺失路径时，才通过 `syncast.doc.graphql` 调用 `ensureFolderPath`，并使用其返回的 `folderId`。
+
+优先“生成时直接落位”：命名/分类规则已知时同时传 `targetAssetName` + `targetFolderId`；只有归类依赖实际产物内容时，才省略目录并在验收后调用 `moveAssetsToFolder`。不存在的 ID 会在提交时返回 `target_folder_not_found`；如果目录在任务运行期间被删除，结果回退到根目录，支持完成元数据的路径返回 `placement_warning: "target_folder_not_found_fell_back_to_root"`。
 
 视频生成建议：
 

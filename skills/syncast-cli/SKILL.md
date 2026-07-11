@@ -170,10 +170,37 @@ syncast project-agent serve
 syncast project-agent pages
 syncast project-agent capabilities
 syncast project-agent capabilities --action syncast.agent.delegate --disclosure full
+syncast project-agent capabilities --action syncast.imagine.submit --disclosure full
 syncast project-agent run syncast.project.inspect --input '{"limit":20}'
 syncast project-agent run syncast.doc.graphql --input '{"query":"query { agents { agents { id name model allowLoadSkills skills { skillId skillType preload } childAgents { childAgentId alias displayName } } } }"}'
 syncast project-agent run syncast.agent.delegate --input '{"goal":"整理项目方案","executor":{"kind":"model","model":"gemini-3.5-flash"},"wait":false}'
 ```
+
+### Project-aware Imagine naming and folder placement
+
+Project folder placement is an Agent Action capability, not a bare cloud-generation flag. A direct command such as `syncast imagine --project-id <id>` sends project attribution to the generation service, but it does not inspect the opened project's Docs/Assets CRDT, resolve a folder path, or guarantee that the result is materialized into that project's folder tree. Do not pass `target_folder_id` through direct `--input` and claim that the project has been organized.
+
+For a generated asset that must appear in a project folder:
+
+1. Connect the opened project with `syncast project-agent`.
+2. Read relevant project specs and the current Assets tree.
+3. Reuse a real existing folder ID. Only when the user or spec explicitly requires a missing path, call Assets GraphQL `ensureFolderPath` and use the returned `folderId`.
+4. Inspect the current action contract, then pass `targetAssetName` and `targetFolderId` to `syncast.imagine.submit`. Omit `targetFolderId` for the project root.
+
+```shell
+syncast project-agent capabilities \
+  --action syncast.imagine.submit \
+  --disclosure full
+
+syncast project-agent run syncast.assets.folders
+
+syncast project-agent run syncast.imagine.submit \
+  --input '{"modelType":"nano-banana-2","prompt":"Generate a cinematic character sheet.","targetAssetName":"Character A","targetFolderId":"<existing-folder-id>","optimizePrompt":true,"wait":false}'
+```
+
+`targetFolderId` must be a real current-project folder ID, never a name, path, placeholder, or ID copied from another project. A missing/blank field means root. The action rejects an unknown folder at submission with `target_folder_not_found`. If the folder is deleted while generation is running, materialization falls back to root; structured completion paths report `placement_warning: "target_folder_not_found_fell_back_to_root"`.
+
+Prefer direct placement when naming/classification is known from the project spec. Generate to root and move afterward only when classification genuinely depends on inspecting the output.
 
 For deterministic delegated work, pass the action input `executor` explicitly:
 
@@ -463,7 +490,7 @@ Direct `syncast imagine` supports image input without going through project Agen
 
 Use `--input <json>` or `--input-file <path>` to pass arbitrary image schema fields directly into `task_request.input`; these fields are merged with `model_type`, `prompt`, `aspect_ratio`, and `resolution`. CLI convenience flags `--width`, `--height`, and `--quality` write those schema fields directly, which is useful for custom dimensions such as `--resolution custom --width 2400 --height 3600`.
 
-When a newer CLI exposes `syncast schema`, check it before building advanced payloads. The schema is the source of truth for which models accept image/video/audio input fields, limits, and examples. If `syncast schema` is unavailable or incomplete, use the direct passthrough flags above for known backend schema fields; use Syncast Agent Actions, project Imagine drafts, or the app UI only when the task depends on project-local asset selection, UI-only workflows, or richer project context.
+When a newer CLI exposes `syncast schema`, check it before building advanced payloads. The schema is the source of truth for which models accept image/video/audio input fields, limits, and examples. If `syncast schema` is unavailable or incomplete, use the direct passthrough flags above for known backend generation fields. Use Syncast Agent Actions, project Imagine drafts, or the app UI when the task depends on project-local asset selection, project Docs, asset naming, folder placement, UI-only workflows, or richer project context.
 
 Stable conceptual mapping for agents:
 

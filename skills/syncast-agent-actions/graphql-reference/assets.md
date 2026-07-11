@@ -77,7 +77,7 @@ mutation EnsureFolder($input: EnsureFolderPathInput!) {
     folderId
     path
     createdCount
-    segments { id name path parentId }
+    folders { id name path parentId created }
   }
 }
 ```
@@ -91,6 +91,11 @@ Variables:
   }
 }
 ```
+
+When a project spec explicitly requires generated outputs in this path, pass
+the returned `folderId` as `targetFolderId` to `syncast.imagine.submit` (or as
+`target_folder_id` in a raw Imagine draft item). Do not pass the path itself.
+If no explicit destination is required, omit the field and use the Assets root.
 
 Move assets into an existing or newly-created folder path:
 

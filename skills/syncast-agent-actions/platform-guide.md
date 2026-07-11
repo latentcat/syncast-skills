@@ -121,6 +121,7 @@ Agent 输入、文档输入和 Imagine 输入都支持 `@` 引用项目内容。
 3. 在提示词或 references 参数中使用解析后的 `assetId`。
 4. 发起图片/视频生成前，再次调用 `syncast.assets.resolveReferences` 校验所有引用都能解析。
 5. 只要有资产 ID 或名称无法解析，停止生成并向用户说明，避免浪费积分。
+6. 读与本次产物有关的项目规范，再浏览 Assets 目录树；规范已明确命名/分类时，记录目标名称与真实 folder ID。只在明确规范路径缺失时才调用 `ensureFolderPath`。
 
 对于文档引用，先用 `syncast.docs.readForAgent` 获取文档索引和 outline。需要引用整个文档时用 `@{doc:...}`；只需要风格规范、场景规范等章节时，用 `@{doc-section:...}` 引用具体标题/章节。项目规范可以拆成多个子文档，也可以在一个文档中按标题组织，原则是方便人类阅读和后续单独引用。
 
@@ -154,6 +155,8 @@ Agent 输入、文档输入和 Imagine 输入都支持 `@` 引用项目内容。
 - 预计积分消耗和余额。
 - 所有参考资产都已解析到正确 ID。
 - 输出资产命名是否清晰，例如角色、场景、关键帧编号和镜头编号。
+- 如果规范已确定归档目录，`targetFolderId` 是当前项目中真实存在的 ID，而不是文件夹名或路径；无明确目录时省略并落根目录。
+- 对分类确定的中间产物，提交生成时直接携带 `targetAssetName` + `targetFolderId`；只在需要根据实际画面/内容再分类时使用生成后移动。
 
 ## 项目规范与文档组织
 
@@ -334,7 +337,7 @@ Agent 判断：
 7. 如果项目内容不足，向用户汇报缺口：缺规范、缺素材、缺画布结构、缺时间轴或缺任务结果。
 8. 如果需要业务创作，优先用 `syncast.agent.delegate` 委托内部 Agent。
 9. 如果需要排布待生成镜头，优先创建时间轴 AI Slot，让用户能查看和手动触发。
-10. 如果需要生成素材，先解析并校验引用、估算积分，再使用 `syncast.imagine.submit`，必要时开启 `optimizePrompt`。
+10. 如果需要生成素材，先读相关规范和当前 Assets 目录，解析并校验引用、确认目标命名/目录、估算积分，再使用 `syncast.imagine.submit`，必要时开启 `optimizePrompt`。
 11. 等待长任务完成：`window.__syncastAgent.wait(ref, { returnResult: true })`。
 12. 读取结果并复查：文档用 `syncast.docs.readForAgent`，资源用 `syncast.assets.browse/list/get`，频道用 `syncast.channel.messages.list/get`，时间轴用 `syncast.timeline.get`。
 13. 向用户汇报完成内容、产物位置、风险和下一步建议。
