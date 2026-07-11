@@ -90,6 +90,16 @@ Syncast 的各个 tab 对应用户在不同阶段习惯看到的操作方式：
 - 需要拆分镜头、设计多镜头片段或整理时间轴 Slot。
 - 需要内部 Skill 调用平台能力完成复杂业务任务。
 
+内部执行器不是两套产品：项目里创建的每个 Agent 都是一份独立声明，可以直接作为顶层执行器，也可以被其它 Agent 绑定为命名选择。直接选择模型时，模型可发现项目全部 Agent；直接选择某个声明 Agent 时，它只能发现自己的绑定项。无论哪种顶层入口，都可以从头创建不继承父 Agent 指令的临时子 Agent；所有子执行均为叶节点，不会继续展开绑定关系。
+
+外部 Agent 应显式传 `executor`。需要稳定的通用入口时使用 `{ kind: "model", model: ... }`；需要某个既有 Agent 的完整模型、指令和 Skill 声明时使用 `{ kind: "agent", agentId: ... }`。项目 Agent ID 与绑定关系从 Agents GraphQL 获取，不要把 CLI 外部身份的 `--agent-id` 当成内部 Agent ID。
+
+声明 Agent 的 custom Skill binding 表达“明确选中”，`preload` 则独立表达“是否启动预载”：选中但 `preload=false` 的 Skill 仍可按需加载；`preload=true` 才会把完整说明放进启动上下文。全部内置 Skill 始终可按需加载，不需要用 binding 授权。`alwaysApply` custom Skill 始终可用并启动预载，Skill 自身的 `depends` 只表达依赖，不带 preload。
+
+`allowLoadSkills` 是历史兼容字段，它现在只控制是否把**未选中的项目 custom Skill**也加入可发现范围。新 Agent 默认/建议显式写 `false`；旧 Agent 缺失该字段时按 `true` 保持历史行为。关闭它不会禁用已选 custom Skill、依赖、`alwaysApply` Skill或任何内置 Skill。
+
+一次内部 Agent 任务使用发送时冻结的 Agent/Skill 快照。协作者在任务运行中修改配置不会让同一任务前后漂移，修改从下一次任务开始生效。root task 权限同时是所有命名/临时子 Agent 的上限；当前 UI 创建的项目 Agent 默认继承 root 权限。
+
 默认 Agent 模型偏好 Opus 4.8；如果平台提供模型选择且用户没有特殊要求，优先使用它。注意控制上下文长度：不要把所有任务都放在同一个内部 Agent 对话里，按主题拆分 Channel 或任务，避免性能下降和上下文浪费。
 
 ## @ 引用与资源校验

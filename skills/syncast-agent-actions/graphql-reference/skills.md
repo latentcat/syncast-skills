@@ -63,3 +63,5 @@ Variables:
 ```
 
 Skill 不支持 Agent 专属字段 `model` 或 `colorName`。
+
+`depends` 只是 Skill 依赖引用，每项只有 `skillId` 和 `skillType`，不要在这里写 `preload`。`preload` 只属于 Agents GraphQL 中某个 Agent 的 `skills` binding；`alwaysApply=true` 才表示这个项目 Skill 对所有执行器始终可用并在启动时加载。

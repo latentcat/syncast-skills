@@ -1,6 +1,6 @@
 # Syncast Agent Actions 参考
 
-这份文档是外部 Agent 操作 Syncast 网页的完整能力索引。当前 Action Layer 显式暴露 **50 个 action**，分成两类：
+这份文档是外部 Agent 操作 Syncast 网页的完整能力索引。当前 Action Layer 显式暴露 **51 个 action**，分成两类：
 
 - **原子化能力**：项目上下文、GraphQL/Loro、时间轴、频道、消息、资源、文档、任务、通知、Imagine、内部 Agent 对话。
 - **便捷封装路径**：把多个原子能力组合成更适合 Agent 使用的入口，例如 `project.inspect`、`agent.delegate`、`imagine.submit`、`docs.readForAgent`、`wait(..., { returnResult: true })`。
@@ -47,6 +47,9 @@ await window.__syncastAgent.run(actionName, input, options);
 - 任务身份分两层记录：`initiator` 记录谁发起任务（当前支持外部 Agent / 调试器 / 系统，后续可扩展到协作用户 A/B），`task.type` 或 action 名记录任务业务类型（内部 Agent 对话、Imagine 等）。
 - Loro 读写统一走项目已有 monodoc GraphQL 或前端封装好的任务路径。
 - 写操作必须经过项目权限检查；GraphQL mutation 会先等待 Streams 初始同步，再执行 `saveAndSync`。
+- 内部 Agent 任务在提交时冻结本次 Agent、可用 Agent 目录与 Skill 快照；任务运行中修改项目 Agent/Skill 只影响下一次任务。
+- root task 权限是硬上限。声明 Agent/命名 Agent 可以继承或进一步收紧，但不能提升 root 权限；当前项目 UI 中的 Agent 默认继承 root 权限。
+- 声明 Agent 始终可按需加载全部内置 Skill；custom Skill 默认范围是已选 binding、依赖与 `alwaysApply` Skill。`allowLoadSkills=true` 才额外开放未选中的项目 custom Skill；新 Agent 建议显式写 `false`，旧 Agent 缺失字段按 `true`。binding 的 `preload` 只控制启动时是否注入完整说明，旧 binding 缺少 `preload` 时按 `true`。
 - 长任务不靠反复读进度，优先使用 `wait`、`subscribe`、`notifications.list` 获取完成通知，再按 `ref` 补拉结果。
 - 大列表、长正文、消息 parts、模型 schema、GraphQL 字段说明都采用渐进式披露：默认返回 `summary/index`，需要时显式传 `disclosure`、`mode`、`include*`、`limit/offset` 展开。
 - 生成图片或视频前必须校验 `@` 引用和 `references` 是否解析到真实资产，避免错误 ID 造成积分浪费。
@@ -313,13 +316,39 @@ validation.unresolvedMentions.length === 0
 
 | Action | 权限 | 输入 | 输出 | 用途 |
 | --- | --- | --- | --- | --- |
-| `syncast.agent.chat.submit` | edit | `{ prompt, channelId?, channel?, attachments?, rawPrompt?, includeHistory?, wait?, notify?, timeoutMs? }` | `{ localTaskId, messageId, ref }`；等待时包含 notification/result | 通过现有前端聊天路径发起内部 Agent 对话 |
+| `syncast.agent.chat.submit` | edit | `{ prompt, executor?, channelId?, channel?, attachments?, rawPrompt?, includeHistory?, wait?, timeoutMs? }` | `{ localTaskId, messageId, ref }`；等待时包含 notification/result | 通过现有前端聊天路径发起内部 Agent 对话 |
 | `syncast.agent.chat.wait` | read | `{ ref, timeoutMs? }` | 完成/失败通知 | 等待内部 Agent 回复 |
 | `syncast.agent.chat.result` | read | `{ ref }` | chat 消息摘要，含 `text` / `textPreview` | 读取内部 Agent 最终消息 |
-| `syncast.agent.delegate` | edit | `{ goal?, prompt?, channel?, attachments?, includeHistory?, wait?, notify?, timeoutMs? }` | `{ localTaskId, messageId, ref }`；等待时包含 notification/result | 外部 Agent 最推荐使用的业务委托入口 |
+| `syncast.agent.delegate` | edit | `{ goal?, prompt?, executor?, channel?, attachments?, includeHistory?, wait?, timeoutMs? }` | `{ localTaskId, messageId, ref }`；等待时包含 notification/result | 外部 Agent 最推荐使用的业务委托入口 |
 | `syncast.agent.approval.respond` | edit | `{ approvalId, approved, feedback? }` | 审批结果摘要 | 响应该外部 Agent 托管的内部 Agent action approval |
 
 `syncast.agent.delegate` 允许只传 `goal`，它会自动创建/复用专用的自动化 chat channel，不会默认使用人类当前正在查看的频道，也不会默认携带整段频道历史。只有当外部 Agent 明确需要延续某个频道上下文时，才传 `channelId/channelTitle` 和 `includeHistory: true`。
+
+`executor` 显式选择顶层执行器，建议外部 Agent 总是传入，避免任务受目标频道当前 UI 选择影响：
+
+```json
+{ "kind": "model", "model": "gemini-3.5-flash" }
+```
+
+直接模型会看到项目内全部独立 Agent，可按名称调用其中任意一个，也可从头创建临时子 Agent。
+
+```json
+{ "kind": "agent", "agentId": "<project-agent-id>" }
+```
+
+声明 Agent 只会看到显式绑定给它的命名 Agent，同时仍可从头创建临时子 Agent。项目 Agent 始终只有一份独立声明：既可直接使用，也可被其它 Agent 绑定；绑定不会复制声明或创建“子模式”。任何子执行都是叶节点，不继续展开自身绑定。省略命名 Agent ID 创建的临时子 Agent 不继承父 Agent 的指令或绑定技能。
+
+先用 `syncast.doc.graphql` 查询 `agents { agents { id name model allowLoadSkills skills { skillId skillType preload } childAgents { childAgentId alias displayName whenToUse } } }` 再填写 `executor.agentId`。读取后更新 Agent 时必须保留 `allowLoadSkills` 和每个 binding 的 `preload`；前者缺失按旧 Agent 的 `true` 解释，后者缺失按旧 binding 的 `true` 解释。CLI 的全局 `--agent-id` 是外部操作者身份，不是项目内执行器；不要混用。
+
+任务使用提交时快照。任务运行中修改 Agent 指令、Skill 内容、binding 或 preload，不会改变当前任务，只会从下一次发送开始生效。命名 Agent 的权限也不能超过 root task；当前 UI 创建的项目 Agent 没有独立持久化权限，默认继承 root。
+
+`notify` 是旧调用兼容字段；完成/失败通知始终会记录，新调用可以省略。`timeoutMs` 只控制等待窗口，超时不会取消任务，必须保留 `ref` 后续补拉。
+
+可通过 CLI 查看机器可读字段：
+
+```bash
+syncast project-agent capabilities --action syncast.agent.delegate --disclosure full
+```
 
 当 `syncast.agent.chat.submit` 或 `syncast.agent.delegate` 使用 `wait: true`，返回的 `data.result.text` 是内部 Agent 最终可见回复，`data.result.textPreview` 是短摘要。单独等待时，`syncast.agent.chat.wait` 只返回通知；需要同时补拉结果请使用 `window.__syncastAgent.wait(ref, { returnResult: true })` 或 CLI 的 `syncast project-agent wait --ref <json> --return-result`。
 
@@ -393,8 +422,8 @@ const overview = await window.__syncastAgent.run("syncast.project.inspect", {
 ```ts
 const started = await window.__syncastAgent.run("syncast.agent.delegate", {
   goal: "请基于当前项目资源生成一个视频项目方案，并写入项目文档。",
-  wait: false,
-  notify: true
+  executor: { kind: "model", model: "gemini-3.5-flash" },
+  wait: false
 });
 
 const done = await window.__syncastAgent.wait(started.data.ref, {

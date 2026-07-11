@@ -169,8 +169,22 @@ arbitrary browser JavaScript.
 syncast project-agent serve
 syncast project-agent pages
 syncast project-agent capabilities
+syncast project-agent capabilities --action syncast.agent.delegate --disclosure full
 syncast project-agent run syncast.project.inspect --input '{"limit":20}'
+syncast project-agent run syncast.doc.graphql --input '{"query":"query { agents { agents { id name model allowLoadSkills skills { skillId skillType preload } childAgents { childAgentId alias displayName } } } }"}'
+syncast project-agent run syncast.agent.delegate --input '{"goal":"整理项目方案","executor":{"kind":"model","model":"gemini-3.5-flash"},"wait":false}'
 ```
+
+For deterministic delegated work, pass the action input `executor` explicitly:
+
+- `{ "kind": "model", "model": "gemini-3.5-flash" }` starts from a direct model, which can discover every project Agent and can also create a fresh ad-hoc child.
+- `{ "kind": "agent", "agentId": "<project-agent-id>" }` starts from that independent Agent declaration, which can name only its bound Agents and can also create a fresh ad-hoc child.
+
+Bindings reference the same independent Agent declaration; they do not create a second child mode. Child runs are leaves, and fresh ad-hoc children do not inherit parent Agent instructions. Query the Agents GraphQL module before choosing `executor.agentId`. The CLI option `--agent-id` identifies the external operator and is unrelated to the project Agent selected by `executor.agentId`.
+
+Always query and preserve `allowLoadSkills` together with `skills { skillId skillType preload }` when reading then updating an Agent. Every built-in Skill remains available on demand. Custom bindings identify the explicitly selected project Skills, while `preload` only controls startup instruction injection: `false` keeps a selected Skill available on demand and `true` injects its full instructions at startup. `allowLoadSkills: false` excludes only unselected project custom Skills; `true` expands discovery to the whole project custom-Skill catalog. Missing legacy `allowLoadSkills` and binding `preload` values are both interpreted as `true`, so new Agent declarations should write both booleans explicitly. Skill `depends` entries never use preload.
+
+A delegated task uses the Agent/Skill snapshot captured at submission. Editing the project Agent or Skill changes the next task, not one already running. Child permissions can inherit or narrow the root task permission profile, but cannot exceed it.
 
 If an internal Syncast Agent pauses on an action approval, list pending approval
 notifications:
@@ -207,6 +221,66 @@ Normal users publish reusable resources through `syncast library publish`, not
 the admin-only `syncast template` commands. This is the route used by local
 resource packages, private shares, team libraries, and public-review
 submissions.
+
+Before creating a package, ask the CLI for the current machine-readable field guide and canonical example:
+
+```shell
+syncast library guide
+syncast library guide agent
+syncast library guide skill
+syncast library guide project_template
+```
+
+The guide is local and does not require login. Use its JSON output as the contract for package creation; `syncast library publish --help` and `syncast library import --help` point back to it.
+
+Canonical Agent Skill binding:
+
+```json
+{
+  "type": "agent",
+  "id": "story-planner",
+  "name": "Story Planner",
+  "instructions": "Read the project spec, then return a structured plan.",
+  "allow_load_skills": false,
+  "skills": [
+    { "skill_id": "docs", "skill_type": "builtin", "preload": false },
+    {
+      "skill_id": "continuity-checker",
+      "skill_type": "custom",
+      "preload": true
+    }
+  ],
+  "child_agents": [
+    {
+      "child_agent_id": "shot-planner",
+      "alias": "shots",
+      "when_to_use": "Use for shot breakdown.",
+      "handoff_contract": "Return shot ids, risks, and next actions.",
+      "project_spec_strategy": "inherit"
+    }
+  ]
+}
+```
+
+Canonical custom Skill dependency declaration:
+
+```json
+{
+  "type": "skill",
+  "id": "continuity-checker",
+  "name": "Continuity Checker",
+  "instructions": "Check character and shot continuity.",
+  "always_apply": false,
+  "depends": [
+    { "skill_id": "docs", "skill_type": "builtin" },
+    { "skill_id": "visual-style", "skill_type": "custom" }
+  ]
+}
+```
+
+Use snake_case in new Library manifests. The CLI also accepts documented camelCase aliases for programmatic callers. `preload` belongs only to an Agent `skills` binding; it must not appear in a Skill `depends` item. Agent packages reference custom Skills and child Agents by id, so include/install all dependencies before applying them to a project.
+
+`allow_load_skills` is a compatibility field for whether an Agent may discover and load **unselected project custom Skills**. New packages should set it explicitly to `false` unless the Agent intentionally needs the full project custom-Skill catalog. `false` still allows every built-in Skill, selected custom Skills, their dependencies, and `always_apply` custom Skills. A missing legacy value remains `true`. This field does not replace `preload`: `preload` only controls which selected Skills inject their full instructions at startup.
 
 ```shell
 # Personal or team library item

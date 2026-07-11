@@ -70,6 +70,17 @@ const overview = await window.__syncastAgent.run("syncast.project.inspect", {
 
 外部 Agent 无法直接访问 Syncast 内部 Skill。剧本设计、视频创作、提示词生成、模型参数理解、工具调用建议等，应该高频询问或委托内部 Agent。
 
+项目里的每个自定义 Agent 都是独立声明，可直接运行，也可被其它 Agent 绑定为命名选项。调用前先选择顶层执行器：
+
+- `executor: { kind: "model", model: "gemini-3.5-flash" }`：直接模型可发现项目全部 Agent，也可从头创建临时子 Agent。
+- `executor: { kind: "agent", agentId: "..." }`：声明 Agent 只可按名称选择自己的绑定 Agent，也可从头创建临时子 Agent。
+
+绑定不会复制 Agent，也不会形成运行时嵌套；命名或临时子执行都是叶节点。临时子 Agent 不继承声明 Agent 的指令和绑定技能。选择 `agentId` 前，用 Agents GraphQL 查询真实 ID 与 `childAgents`。
+
+查询目录时同时读取 `allowLoadSkills` 和 `skills { skillId skillType preload }`。全部内置 Skill 始终可按需加载；`allowLoadSkills=false` 只排除未选中的项目 custom Skill，不影响已选 binding、依赖与 `alwaysApply` Skill。`preload=false` 表示 Skill 仍可用，只是不在启动时注入完整说明。新 Agent 建议显式写 `allowLoadSkills=false`；旧 Agent 缺失时按 `true`，旧 binding 缺少 `preload` 时也按 `true`。read-modify-write 必须原样保留这些字段。
+
+每次发送都会冻结本次 Agent、命名 Agent 目录和 Skill 快照。任务运行中修改配置只影响下一次任务；子 Agent 权限也始终受 root task 权限上限约束。
+
 ```ts
 const started = await window.__syncastAgent.run("syncast.agent.delegate", {
   goal: [
@@ -78,9 +89,9 @@ const started = await window.__syncastAgent.run("syncast.agent.delegate", {
     "如果项目方向是电影感 3D 动画或三维渲染二维感，请在风格规范中明确参考 `$cinematic-3d-animation`，并按该 Skill 写整体视觉原则、固定提示词骨架、正向词、反向控制和验收标准。",
     "请尽量写入项目文档，方便后续通过 @ 文档或章节引用。"
   ].join("\n"),
+  executor: { kind: "model", model: "gemini-3.5-flash" },
   channel: { purpose: "project-planning", type: "chat", createIfMissing: true },
-  wait: false,
-  notify: true
+  wait: false
 });
 ```
 
@@ -91,9 +102,9 @@ const started = await window.__syncastAgent.run("syncast.agent.delegate", {
 ```ts
 const started = await window.__syncastAgent.run("syncast.agent.delegate", {
   goal: "请基于当前项目资源生成一个视频项目方案，并写入项目文档。",
+  executor: { kind: "agent", agentId: "<project-agent-id>" },
   channel: { purpose: "project-planning", type: "chat" },
-  wait: false,
-  notify: true
+  wait: false
 });
 ```
 

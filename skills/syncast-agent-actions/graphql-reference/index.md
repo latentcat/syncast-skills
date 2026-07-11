@@ -37,5 +37,6 @@ syncast project-agent run syncast.doc.graphql --input '{"query":"query { docPage
 - Query 是 read；mutation 是 edit，会先等待 Streams 初始同步，再 `saveAndSync`。
 - 字段名用 GraphQL camelCase：`parentId`、`updatedAt`、`assetId`，不要用内部 snake_case。
 - 创建类 mutation 尽量传 `idempotencyKey`，避免重试时重复创建。
+- Agent read-modify-write 必须查询并保留 `skills.preload`；Skill `depends` 本身不带 preload。
 - 业务创作优先 `syncast.agent.delegate`；只有明确的数据结构变更才用 raw GraphQL。
 - 完整 SDL 在 `assets/monodoc-graphql-schema/monodoc.graphql`。
