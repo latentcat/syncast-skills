@@ -100,13 +100,14 @@ syncast imagine \
   --reference-image ./outfit.png
 ```
 
-Use an existing remote filename without uploading again:
+For an image already in the target Syncast project, use its stable Asset ID;
+the CLI resolves the storage object internally:
 
 ```shell
 syncast imagine \
-  --prompt "restyle this image" \
-  --model nano-banana-2 \
-  --reference-remote cli-reference/example.png
+  --project <project-id> \
+  --reference-asset <asset-id> \
+  --prompt "create a consistent variation"
 ```
 
 Pass advanced image schema fields directly with `--input` or `--input-file`:
@@ -120,11 +121,8 @@ syncast imagine \
   --height 3600
 ```
 
-```shell
-syncast imagine \
-  --prompt "poster layout" \
-  --input '{"references":[{"asset_id":"ref1","remote_filename":"uploads/ref.png","reference_type":"image"}]}'
-```
+Do not obtain or pass project storage keys. Use `--reference-asset` for project
+media and `--reference-image` for local files.
 
 ### Video
 
@@ -166,6 +164,7 @@ syncast imagine \
 - `--name` sets the project asset display name.
 - `--folder` accepts a folder name or `/`-separated path. Missing segments are created automatically when Syncast materializes the result. Use `/` or omit it for root.
 - `--folder-id` is an advanced alternative when a verified current-project folder ID is already available. Do not combine it with `--folder`.
+- `--reference-asset <asset-id>` resolves an existing project image internally and is repeatable. It requires `--project`; do not obtain or expose its storage key yourself.
 - `--project-id` remains a hidden compatibility alias for `--project`.
 - Project-only fields in raw `--input` require `--project`; explicit CLI flags override raw delivery fields.
 
@@ -201,10 +200,14 @@ syncast project-agent run syncast.agent.delegate --input '{"goal":"整理项目�
 ```
 
 `project-agent` is for work that genuinely depends on the opened project's live
-Docs, Assets, timeline, or internal Agents. The CLI intentionally hides and
-rejects `syncast.imagine.submit` / `submitToChannel`; use `syncast imagine
---project ...` for generation and folder delivery. This avoids a second,
-browser-dependent generation API.
+Docs, Assets, timeline, or internal Agents. Its capabilities are a fail-closed
+set of high-level external actions. Page-internal Imagine submit/draft actions,
+timeline slot submit, raw Agent chat, typed wait/result, notification actions,
+and compatibility list/search/get aliases are hidden and rejected at both the
+browser and CLI execution boundaries. Use `syncast imagine --project ...` for
+generation and folder delivery, bridge `wait`/`notifications` methods for task
+completion, and the canonical `assets.list` / `docs.readForAgent` actions for
+queries.
 
 For deterministic delegated work, pass the action input `executor` explicitly:
 
@@ -477,7 +480,7 @@ syncast start
 | Video | `kittyvibe-seedance2.0pro`, `kittyvibe-seedance2.0fast`, `kittyvibe-seedance2.0global`, `kittyvibe-seedance2.0fastglobal`, `veo-3-1`, `veo-3-1-fast`, `grok-video-3` |
 | Audio | `fal-ai/elevenlabs/sound-effects/v2` |
 
-Default image route: use `nano-banana-2`. For complex composition, long text, strict layout, or higher instruction-following needs, prefer `nano-banana-2` with `thinking_level: "High"` when using project Imagine / Agent Actions; with the direct CLI, still pass `--model nano-banana-2` and keep the prompt explicit. Use `nano-banana-pro` only when the user explicitly asks for Pro / Nano Banana Pro, or when the request needs a special style, strong stylization, or a specific art-direction exploration.
+Default image route: use `nano-banana-2`. For complex composition, long text, strict layout, or higher instruction-following needs, an internal Syncast Agent may use the model schema's `thinking_level: "High"`; with the direct CLI, pass `--model nano-banana-2` and keep the prompt explicit. Use `nano-banana-pro` only when the user explicitly asks for Pro / Nano Banana Pro, or when the request needs a special style, strong stylization, or a specific art-direction exploration.
 
 Treat image reference and image editing as one capability family: **image input**. If the user provides an existing image and asks to keep a character, reuse style, make a variation, change clothes, change background, improve layout, or edit the image, prefer an image-input-capable image model rather than switching mental models between "reference" and "edit". The default image-input route is still `nano-banana-2`; use `oai-gpt-image-2` when the user explicitly asks for OpenAI/GPT Image 2, mask editing, official API behavior, or strict control over `aspect_ratio`, `resolution`, `quality`, `output_format`, or `mask`.
 
@@ -490,11 +493,11 @@ Use `--duration-seconds`, `--prompt-influence`, and `--loop` for sound-effect co
 
 ## Media input capability
 
-Direct `syncast imagine` supports image input without going through project Agent Actions. For local files on disk, use `--reference-image <path>`; the CLI uploads the file through Syncast's upload API and appends it to `task_request.input.references`. For files already in Syncast/R2, use `--reference-remote <remote_filename>`. Both flags are repeatable.
+Direct `syncast imagine` supports image input without going through project Agent Actions. For local files on disk, use `--reference-image <path>`. For an image already in the target project, use `--project <id> --reference-asset <asset-id>`; the CLI resolves its storage object internally. Both public flags are repeatable.
 
 Use `--input <json>` or `--input-file <path>` to pass arbitrary image schema fields directly into `task_request.input`; these fields are merged with `model_type`, `prompt`, `aspect_ratio`, and `resolution`. CLI convenience flags `--width`, `--height`, and `--quality` write those schema fields directly, which is useful for custom dimensions such as `--resolution custom --width 2400 --height 3600`.
 
-When a newer CLI exposes `syncast schema`, check it before building advanced payloads. The schema is the source of truth for which models accept image/video/audio input fields, limits, and examples. If `syncast schema` is unavailable or incomplete, use the direct passthrough flags above for known backend generation fields. When the project ID, asset name, and destination path are already known, stay on the normal CLI and pass `--project`, `--name`, and `--folder`; naming and folder placement alone are not reasons to use `project-agent`. Use Syncast Agent Actions, project Imagine drafts, or the app UI only when the workflow genuinely depends on reading project Docs, selecting or validating live project assets, deriving classification from project state or generated content, timeline/canvas operations, or other UI-local context.
+Use `syncast imagine --help` for the normal image options. When an opened project bridge is available and current model-specific limits are needed, query the public `syncast.imagine.models` Action; do not assume a nonexistent `syncast schema` command. Use raw passthrough only for a known backend field. When the project ID, asset name, and destination path are already known, stay on the normal CLI and pass `--project`, `--name`, and `--folder`; naming, folder placement, or a known project Asset ID are not reasons to use `project-agent`. Use Syncast Agent Actions or the app UI only when the workflow genuinely depends on reading project Docs, discovering project state, deriving classification from content, timeline/canvas operations, or other UI-local context.
 
 Stable conceptual mapping for agents:
 
@@ -502,8 +505,8 @@ Stable conceptual mapping for agents:
 |-------------|------------|---------------|
 | Generate from text | Text-to-image | `syncast imagine --model nano-banana-2` |
 | Use a local picture as character/style/layout/input | Image input | `syncast imagine --model nano-banana-2 --reference-image ./image.png` |
-| Use an already uploaded picture | Image input | `syncast imagine --model nano-banana-2 --reference-remote <remote_filename>` |
-| Edit an existing picture without a strict mask | Image input | `nano-banana-2` with `--reference-image` or `--reference-remote` |
+| Use an image already in a Syncast project | Image input | `syncast imagine --project <id> --model nano-banana-2 --reference-asset <asset-id>` |
+| Edit an existing picture without a strict mask | Image input | `nano-banana-2` with `--reference-image` or `--reference-asset` |
 | Mask edit / official OpenAI GPT Image 2 behavior | Image input + mask | `oai-gpt-image-2` |
 | Generate video from text/images/multiple media | Multimodal video input | `kittyvibe-seedance2.0pro` |
 | Fast video preview | Multimodal video input | `kittyvibe-seedance2.0fast` |
@@ -511,9 +514,9 @@ Stable conceptual mapping for agents:
 
 Do not classify "image reference" and "image editing" as separate model families. They are both image-input tasks; choose the model by the required controls and then fill the schema-supported input fields.
 
-## Project / Agent Action models
+## Project-context workflows
 
-These routes depend on project-local asset selection, draft state, or UI-only workflows. Use Syncast Agent Actions, project Imagine drafts, or the app UI when the task needs those project contexts rather than a bare `syncast imagine` / `syncast video` command:
+Use Syncast Agent Actions or the app UI when work depends on live Docs, asset discovery, timeline/canvas state, or internal Agent reasoning. Once prompt/model/reference IDs and delivery are known, return to the normal `syncast imagine` / `syncast video` command.
 
 For image cleanup after multi-round edits, use `recraft-ai/recraft-crisp-upscale`; it repairs noisy, scaly, grainy, or broken texture details without requiring a prompt.
 

@@ -1,6 +1,6 @@
 # Channels GraphQL
 
-用于精确读写 AI / Imagine 频道和消息。业务对话优先使用 `syncast.agent.delegate` 或 `syncast.agent.chat.submit`；本模块适合读取、迁移或轻量结构化创建。
+用于精确读写 AI / Imagine 频道和消息。外部业务对话统一使用 `syncast.agent.delegate`；本模块适合读取、迁移或轻量结构化创建。
 
 ## Fields
 

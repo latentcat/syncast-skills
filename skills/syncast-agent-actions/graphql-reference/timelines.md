@@ -146,4 +146,7 @@ mutation SetSlotOutput($timelineId: String!, $clipId: String!, $input: Generatio
 }
 ```
 
-For generation submission, prefer `syncast.timeline.generationSlots.submit` so the frontend billing, validation and Imagine queue path stay consistent.
+External Actions create and update draft slots only. Let the user trigger a slot
+in Syncast, or generate through `syncast imagine` and explicitly adopt the
+resulting asset with `setGenerationSlotOutput`; the internal slot-submit action
+is not exposed through the external bridge.

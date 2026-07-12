@@ -90,7 +90,6 @@ const started = await window.__syncastAgent.run("syncast.agent.delegate", {
     "请尽量写入项目文档，方便后续通过 @ 文档或章节引用。"
   ].join("\n"),
   executor: { kind: "model", model: "gemini-3.5-flash" },
-  channel: { purpose: "project-planning", type: "chat", createIfMissing: true },
   wait: false
 });
 ```
@@ -103,7 +102,6 @@ const started = await window.__syncastAgent.run("syncast.agent.delegate", {
 const started = await window.__syncastAgent.run("syncast.agent.delegate", {
   goal: "请基于当前项目资源生成一个视频项目方案，并写入项目文档。",
   executor: { kind: "agent", agentId: "<project-agent-id>" },
-  channel: { purpose: "project-planning", type: "chat" },
   wait: false
 });
 ```
@@ -141,19 +139,24 @@ await window.__syncastAgent.run("syncast.docs.readForAgent", {
 @{doc-section:<docId>:<sectionId>|<displayName>}
 ```
 
-资产引用校验：
+资产引用校验：先按名称搜索，再用唯一 ID 读取详情。
 
 ```ts
-const refs = await window.__syncastAgent.run("syncast.assets.resolveReferences", {
-  references: ["主角参考图", { assetId: "asset-id-from-assets-get" }]
+const matches = await window.__syncastAgent.run("syncast.assets.list", {
+  query: "主角参考图",
+  limit: 10
+});
+
+await window.__syncastAgent.run("syncast.assets.get", {
+  assetId: "<unique-asset-id>"
 });
 ```
 
-如果任何引用没有解析到真实 assetId，停止生成并向用户说明。不要带着错误 ID 发起图片或视频任务。
+如果没有唯一真实 assetId，停止生成并向用户说明。不要带着错误 ID 发起图片或视频任务。
 
 ## 发起 Imagine
 
-先读与本次产物相关的项目规范，再查当前 Assets 目录。如果规范明确指定了归档路径，优先复用已有目录的真实 ID：
+先读与本次产物相关的项目规范，再查当前 Assets 目录，确定用户可读的目标路径和资源名称：
 
 ```ts
 await window.__syncastAgent.run("syncast.docs.readForAgent", {
@@ -166,22 +169,6 @@ const tree = await window.__syncastAgent.run("syncast.assets.browse", {
 });
 ```
 
-只在用户或规范明确要求的路径不存在时，才幂等创建/复用路径：
-
-```ts
-const ensured = await window.__syncastAgent.run("syncast.doc.graphql", {
-  query: `mutation EnsureFolder($input: EnsureFolderPathInput!) {
-    ensureFolderPath(input: $input) { folderId path createdCount }
-  }`,
-  variables: { input: { path: "/Characters/Designs" } },
-  idempotencyKey: "external-agent:characters-designs"
-});
-
-const targetFolderId = ensured.data.data.ensureFolderPath.folderId;
-```
-
-不要用文件夹名或路径替代 `folderId`。没有明确归档要求时省略 `targetFolderId`，结果进根目录。
-
 发起前建议先估算积分：
 
 ```ts
@@ -191,41 +178,18 @@ await window.__syncastAgent.run("syncast.imagine.estimateCredits", {
 });
 ```
 
-```ts
-const started = await window.__syncastAgent.run("syncast.imagine.submit", {
-  modelType: "nano-banana-2",
-  prompt: "请基于选中的项目资源生成一个电影感项目概念板。",
-  references: [{ name: "主视觉.png" }],
-  count: 2,
-  targetAssetName: "项目概念板A",
-  targetFolderId,
-  optimizePrompt: true,
-  wait: false
-});
+外部生成统一走 `syncast imagine`，不调用页面内部 submit Action：
+
+```bash
+syncast imagine \
+  --project <project-id> \
+  --folder "/Characters/Designs" \
+  --name "项目概念板A" \
+  --model nano-banana-2 \
+  --prompt "请基于选中的项目资源生成一个电影感项目概念板。"
 ```
 
-等待完成：
-
-```ts
-await window.__syncastAgent.wait(started.data.ref, {
-  timeoutMs: 20 * 60 * 1000
-});
-```
-
-`targetAssetName` 是生成完成后写入资源库的资产名称，`targetFolderId` 是唯一初始归档目录，两者都不影响模型生成内容。命名和分类可由规范确定时应直接传入；只有归类必须依赖实际生成内容时，才先落根目录、验收后再移动。批量生成时系统会为名称自动追加序号。
-
-提交成功后检查返回值：
-
-```ts
-if (!started.data.validation?.ok) {
-  throw new Error("生成前校验未通过，不应继续。");
-}
-if (started.data.validation.leftoverTokens.length > 0) {
-  throw new Error("最终模型输入仍残留 @ 引用 token。");
-}
-```
-
-`submitted.modelPrompt` 是实际模型提示词文本，`submitted.finalModelInput` 是最终模型输入。外部 Agent 应用它们复查 `@` 是否都被解析/替换，而不是只看原始 prompt。
+`--folder` 支持名称或路径，缺失段由项目物化流程自动创建；已有真实 folder ID 时可改用 `--folder-id`。`--name` 是资源显示名。引用本地图片使用可重复的 `--reference-image`，引用项目内图片使用 `--reference-asset <asset-id>`。页面内部 `targetFolderId`、source slot provenance、provider callback/metadata 等字段不是外部 CLI 参数。
 
 模型建议：
 
@@ -269,7 +233,7 @@ await window.__syncastAgent.run("syncast.timeline.generationSlots.createBatch", 
 });
 ```
 
-用户从 slot 手动生成时，会沿用 slot input 里的 `targetAssetName` 和 `targetFolderId`；如果外部 Agent 已获得用户确认，也可以调用 `syncast.timeline.generationSlots.submit` 直接从某个 slot 发起生成。
+用户从 slot 手动生成时，会沿用 slot input 里的 `targetAssetName` 和 `targetFolderId`。外部 Action API 只负责创建和更新 draft slot，不暴露内部 slot submit。
 
 ## 关键帧生成
 
@@ -313,17 +277,17 @@ await window.__syncastAgent.run("syncast.channel.message.get", {
 如果等待调用超时，保留返回的 `ref` 或原始的 `started.data.ref`。
 
 ```ts
-await window.__syncastAgent.run("syncast.notifications.list", {
+await window.__syncastAgent.notifications.list({
   filter: { ref: savedRef },
   limit: 10
 });
 ```
 
-如果暂时没有通知，稍后调用对应的 result action：
+如果暂时没有通知，稍后用同一个 ref 等待并补拉结果：
 
 ```ts
-await window.__syncastAgent.run("syncast.agent.chat.result", {
-  ref: savedRef
+await window.__syncastAgent.wait(savedRef, {
+  returnResult: true
 });
 ```
 

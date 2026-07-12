@@ -116,11 +116,11 @@ Agent 输入、文档输入和 Imagine 输入都支持 `@` 引用项目内容。
 
 推荐流程：
 
-1. 先用 `syncast.assets.search`、`syncast.assets.browse`、`syncast.assets.get` 或 `syncast.assets.resolveReferences` 找到资产；需要交给外部 Agent 自行下载时，用 `syncast.assets.downloadUrls` 获取临时远端下载链接。
+1. 先用带 `query` 的 `syncast.assets.list`、带 `path` 的 `syncast.assets.browse` 或 `syncast.assets.get` 找到资产；需要交给外部 Agent 自行下载时，用 `syncast.assets.downloadUrls` 获取临时远端下载链接。
 2. 记录资产名称、ID、文件夹和用途。
 3. 在提示词或 references 参数中使用解析后的 `assetId`。
-4. 发起图片/视频生成前，再次调用 `syncast.assets.resolveReferences` 校验所有引用都能解析。
-5. 只要有资产 ID 或名称无法解析，停止生成并向用户说明，避免浪费积分。
+4. 发起生成前用 `syncast.assets.get` 确认每个引用 ID 仍存在；外部 CLI 引用项目图片时传 `--reference-asset <asset-id>`。
+5. 只要有资产 ID 无法读取或同名搜索不唯一，停止生成并向用户说明，避免浪费积分。
 6. 读与本次产物有关的项目规范，再浏览 Assets 目录树；规范已明确命名/分类时，记录目标名称与真实 folder ID。只在明确规范路径缺失时才调用 `ensureFolderPath`。
 
 对于文档引用，先用 `syncast.docs.readForAgent` 获取文档索引和 outline。需要引用整个文档时用 `@{doc:...}`；只需要风格规范、场景规范等章节时，用 `@{doc-section:...}` 引用具体标题/章节。项目规范可以拆成多个子文档，也可以在一个文档中按标题组织，原则是方便人类阅读和后续单独引用。
@@ -142,11 +142,10 @@ Agent 输入、文档输入和 Imagine 输入都支持 `@` 引用项目内容。
 - 视频模型：只推荐 SeedDance 2.0；除非用户明确要求，否则使用 Fast 模式。SeedDance 2.0 / Fast 只允许 720P，禁止 1080P。
 - 一般情况下不推荐其它模型，除非用户明确指定或内部 Agent 给出充分理由。
 
-发起生成时应像人类一样选择合适模型和参数，并优先使用提示词优化：
+发起生成时应像人类一样选择合适模型和参数：
 
 - 独立优化：调用 `syncast.imagine.optimizePrompt`。
-- 自动优化再生成：调用 `syncast.imagine.submit` 时设置 `optimizePrompt: true`。
-- 返回结果中的 `validation`、`submitted.modelPrompt/finalModelInput` 和 `promptOptimization` 用于复查实际使用的提示词、参数和引用解析。外部 Agent 应确认 `validation.ok === true`，且 `leftoverTokens`、`unresolvedMentions` 为空。
+- 真实生成：使用 `syncast imagine --project ... --folder ... --name ... --prompt ...`，不要调用页面内部 submit action。
 
 图片/视频生成前必须确认：
 
@@ -155,8 +154,8 @@ Agent 输入、文档输入和 Imagine 输入都支持 `@` 引用项目内容。
 - 预计积分消耗和余额。
 - 所有参考资产都已解析到正确 ID。
 - 输出资产命名是否清晰，例如角色、场景、关键帧编号和镜头编号。
-- 如果规范已确定归档目录，`targetFolderId` 是当前项目中真实存在的 ID，而不是文件夹名或路径；无明确目录时省略并落根目录。
-- 对分类确定的中间产物，提交生成时直接携带 `targetAssetName` + `targetFolderId`；只在需要根据实际画面/内容再分类时使用生成后移动。
+- 如果规范已确定归档目录，CLI 直接传用户可读的 `--folder <name-or-path>`；缺失路径自动创建。只有已经拿到真实 ID 时才使用 `--folder-id`。
+- 对分类确定的中间产物，提交生成时直接携带 `--name` + `--folder`；只在需要根据实际画面/内容再分类时使用生成后移动。
 
 ## 项目规范与文档组织
 
@@ -295,7 +294,7 @@ AI 页包含两类核心能力：
 Agent 判断：
 
 - 如果任务需要创意判断、项目方案、视频工作流、文档产出，优先用 `syncast.agent.delegate` 委托内部 Agent。
-- 如果任务是明确生成图片/视频，使用 `syncast.imagine.submit`。
+- 如果任务是明确生成图片/视频，使用外部 CLI `syncast imagine --project ... --folder ... --name ...`。
 - 生成前先调用 `syncast.billing.summary` 或 `syncast.imagine.estimateCredits` 告知余额和预计消耗。
 
 执行前确认：
@@ -337,7 +336,7 @@ Agent 判断：
 7. 如果项目内容不足，向用户汇报缺口：缺规范、缺素材、缺画布结构、缺时间轴或缺任务结果。
 8. 如果需要业务创作，优先用 `syncast.agent.delegate` 委托内部 Agent。
 9. 如果需要排布待生成镜头，优先创建时间轴 AI Slot，让用户能查看和手动触发。
-10. 如果需要生成素材，先读相关规范和当前 Assets 目录，解析并校验引用、确认目标命名/目录、估算积分，再使用 `syncast.imagine.submit`，必要时开启 `optimizePrompt`。
+10. 如果需要生成素材，先读相关规范和当前 Assets 目录，解析并校验引用、确认目标命名/目录、估算积分，再使用 `syncast imagine --project ... --folder ... --name ...`；需要时先单独调用 `syncast.imagine.optimizePrompt`。
 11. 等待长任务完成：`window.__syncastAgent.wait(ref, { returnResult: true })`。
 12. 读取结果并复查：文档用 `syncast.docs.readForAgent`，资源用 `syncast.assets.browse/list/get`，频道用 `syncast.channel.messages.list/get`，时间轴用 `syncast.timeline.get`。
 13. 向用户汇报完成内容、产物位置、风险和下一步建议。

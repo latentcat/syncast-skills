@@ -1,6 +1,6 @@
 # Assets GraphQL
 
-用于精确读取和整理项目资源、文件夹。生成前引用校验优先用封装 action `syncast.assets.resolveReferences`；需要批量整理资源树时再用本模块 mutation。
+用于精确读取和整理项目资源、文件夹。名称找 ID 优先用 `syncast.assets.list { query }`，再用 `syncast.assets.get` 确认唯一资产；需要批量整理资源树时再用本模块 mutation。
 
 Agent-facing asset queries 会过滤隐藏的 3D/model 资产（`glb` / `stl` / `fbx`）。过滤覆盖 top-level `asset/assets/assetsByIds/folders/assetBrowse`，也覆盖时间轴、画布、频道消息等 nested `asset` / `assetId` / asset ID map 输出；返回 null 或缺失时不要绕过 action layer 反查 raw Loro。
 
@@ -16,7 +16,6 @@ Queries:
 
 Mutations:
 
-- `createAsset(input: AssetCreateInput!)`
 - `updateAsset(id: String!, input: AssetUpdateInput!)`
 - `deleteAsset(id: String!)`
 - `deleteAssets(ids: [String!]!)`
@@ -61,7 +60,6 @@ query AssetsByIds($ids: [String!]!) {
     id
     name
     extension
-    remoteFilename
     genParams
   }
 }
@@ -92,10 +90,11 @@ Variables:
 }
 ```
 
-When a project spec explicitly requires generated outputs in this path, pass
-the returned `folderId` as `targetFolderId` to `syncast.imagine.submit` (or as
-`target_folder_id` in a raw Imagine draft item). Do not pass the path itself.
-If no explicit destination is required, omit the field and use the Assets root.
+For an internal Syncast Agent `imagine` call, pass the returned `folderId` as
+`target_folder_id`; the internal Agent contract never accepts a folder path. For
+external CLI generation, prefer the user-facing `syncast imagine --folder
+<name-or-path>` and let project materialization create missing path segments.
+If no explicit destination is required, omit the folder option and use Assets root.
 
 Move assets into an existing or newly-created folder path:
 

@@ -1,6 +1,6 @@
 ---
 name: syncast-agent-actions
-description: 通过浏览器内 Agent Action Layer 操作已打开的 Syncast 项目。当外部 Agent 需要检查项目、委托 Syncast 内部 Agent、发起 Imagine 生成、排布时间轴 AI 占位 Slot、等待任务完成，或读取项目文档/资源/频道、获取资产远端下载链接时使用；禁止绕过前端或直接点击 UI。
+description: 通过浏览器内 Agent Action Layer 操作已打开的 Syncast 项目。当外部 Agent 需要检查项目、委托 Syncast 内部 Agent、为直接 CLI 生成读取项目上下文、排布时间轴 AI 占位 Slot、等待任务完成，或读取项目文档/资源/频道、获取资产下载链接时使用；禁止绕过前端或直接点击 UI。
 ---
 
 # Syncast Agent Actions
@@ -107,6 +107,7 @@ syncast project-agent approval respond <approvalId> --deny --feedback "用户拒
 
 - 本 skill 负责告诉外部 Agent 怎么理解 Syncast 项目、选择 action、组织 GraphQL / input。
 - `syncast project-agent` 只负责把请求送进当前浏览器项目页并返回统一 `{ ok, data/error }` 结果。
+- 浏览器 bridge 与 CLI 只发现和执行显式标记的外部高层 action。页面 Imagine submit、原始 Agent chat、typed wait/result、通知 action、兼容 list/search/get 别名等内部实现不会出现在 capabilities 中，直接调用返回 `action_not_exposed`。
 - 用户继续操作 UI；外部 Agent 不通过 Playwright click/fill 操作业务 UI。
 - 如果当前环境允许原生、可写的 Playwright `page.evaluate`，也可以直接调用 `window.__syncastAgent.run`；如果工具声明 `evaluate` 只读，必须使用 CLI Bridge 或其它正式 bridge。
 
@@ -170,32 +171,24 @@ await window.__syncastAgent.run("syncast.docs.readForAgent", {
 - root task 权限是硬上限，命名/临时子 Agent 不能自行升级。当前 UI 项目 Agent 默认继承 root 权限；API 提供的 Agent profile 也只能进一步收紧。
 - 外部 Agent 必须先调用 `window.__syncastAgent.initialize({ name, description?, emojiAvatar?, agentId? })` 初始化身份；首次加入会在项目成员中创建归属于当前登录用户的 Agent 身份，后续携带同一个 `agentId` 会认领并延续该身份。后续 action history 和由它发起的任务会记录这个外部操作者。内部 Agent 指的是 Syncast 内部 AI 对话执行者，不等同于外部 Agent。
 - `syncast.agent.delegate` 默认使用专用自动化频道，不使用当前人工频道，也不携带历史。只有明确要延续某个频道上下文时，才传 `channelId/channelTitle` 和 `includeHistory: true`。
-- `notify` 只是旧调用兼容字段，任务通知始终会记录，新调用可省略。`timeoutMs` 只限制等待时长，超时不会取消任务；保存 `ref` 后用 notifications/result 补拉。
+- `timeoutMs` 只限制等待时长，超时不会取消任务；保存 `ref` 后用 bridge 的 `notifications.list` 或 `wait(ref, { returnResult: true })` 补拉。
 - 只有在需要精确读写项目数据，且不需要内部 Agent 业务推理时，才使用 `syncast.doc.graphql`。它是动态权限：query 是 read，mutation 会要求 edit 并落盘。
 - 读取文档优先用 `syncast.docs.readForAgent`，它返回 canonical `docRead` 结构；章节读取使用真实 `sectionId`，分页使用 `nextCursor`，去重使用 `contextKey/loadedContextKeys`。
 - GraphQL query/mutation 中的字段名必须使用 **camelCase**（如 `updatedAt`、`parentId`），不要用 Loro 内部的 snake_case（如 `updated_at`）。可先调用 `syncast.doc.graphql.explain` 获取正确示例。
-- Agent-facing GraphQL 和资产 action 会过滤隐藏的 3D/model 资产（`glb` / `stl` / `fbx`）。如果 `asset`、`assetId`、文件夹、时间轴、画布或消息里的资产字段返回 null / 缺失，表示该资产不对外部 Agent 可见，不要绕过 action layer 去读 raw Loro 或构造 mutation 反查 `remoteFilename`。
-- 输入中引用资产和文档时，使用真实 ID 对应的 `@{asset:<assetId>}`、`@{doc:<docId>|<displayName>}`、`@{doc-section:<docId>:<sectionId>|<displayName>}`；发起图片/视频生成前必须用 `syncast.assets.resolveReferences` 等 action 校验引用。
+- Agent-facing GraphQL 和资产 action 会过滤隐藏的 3D/model 资产（`glb` / `stl` / `fbx`），也不暴露存储、缓存、provider workflow 或底层资产创建接口。下载资产用 `syncast.assets.downloadUrls`，不要绕过 action layer 查实现字段。
+- 输入中引用资产和文档时，使用真实 ID 对应的 `@{asset:<assetId>}`、`@{doc:<docId>|<displayName>}`、`@{doc-section:<docId>:<sectionId>|<displayName>}`。资产名称转 ID 用带 `query` 的 `syncast.assets.list`，再用 `syncast.assets.get` 校验唯一结果；不要猜 ID。
 - 需要把项目资产交给外部 Agent 自行下载时，使用 `syncast.assets.downloadUrls` 或 CLI 便捷命令 `syncast project-agent asset-download-urls --asset-id ...` 获取临时签名 URL。Action 只返回链接和资产元数据，不在浏览器内下载文件；签名 URL 约 1 小时有效，外部 Agent 自行决定下载方式和保存位置。
-- `syncast.imagine.submit` 是页面内 Action Layer 给 Syncast 内部 Agent / 已在页面上下文中的 Action workflow 使用的底层能力，会走和手动 Imagine 面板一致的前端入队路径。它不是公开的 `project-agent` CLI 生成入口；`syncast project-agent run syncast.imagine.submit` 会被 CLI 隐藏并拒绝。
-- 从 CLI 发起生成时统一使用 `syncast imagine --project <id> --folder <path> --name <name> --prompt <text>`。`--folder` 支持名称或路径，缺失段由项目物化时自动创建；只有页面内 Action workflow 才需要把真实 `targetFolderId` 传给 `syncast.imagine.submit`。
-- 生成前先读相关项目规范 Docs，再用 `syncast.assets.folders` / `syncast.assets.browse` 检查当前目录。规范已明确分类时，复用真实 folder ID；只在用户或规范明确要求且路径不存在时，才用 Assets GraphQL `ensureFolderPath` 创建/复用路径，并把它返回的 `folderId` 传为 `targetFolderId`。不要传名称、路径或猜测 ID；无明确目标时省略字段，结果进根目录。
-- 对命名和分类规则已确定的中间产物，优先在提交生成时同时传 `targetAssetName` 和 `targetFolderId`，直接落到唯一初始目录。只有归类必须依赖实际生成内容时，才先生成到根目录、验收后再调用移动。提交时目录不存在会返回 `target_folder_not_found`；运行中目录被删除时，物化会回退根目录，支持结构化完成结果的路径会返回 `placement_warning: "target_folder_not_found_fell_back_to_root"`。
-- 当内部 Agent 的 Imagine 需要确认时，应返回可点击的 Imagine 草稿，不自动执行，也不额外弹通用审批问题。用户已明确要求生成时，内部 Agent 必须传 `request_review=false`；自动审查或完全访问权限会直接执行，包括明确授权的批量生成。
+- 页面内部的 Imagine submit / draft compiler、timeline slot submit、typed wait/result 和原始 chat submit 不属于外部 Action API。不要从 browser bridge 或 `project-agent run` 猜这些名字。
+- 外部 CLI 发起生成统一使用 `syncast imagine --project <id> --folder <name-or-path> --name <name> --prompt <text>`。`--folder` 支持名称或路径，缺失段由项目物化流程自动创建；已有真实 ID 时才使用高级参数 `--folder-id`。引用项目内图片使用 `--reference-asset <asset-id>`，CLI 内部解析存储对象。
+- 内部 Agent 的 `imagine` 工具与外部 CLI 是两套消费方契约：内部 Agent 在实时项目中只传 `asset_name` 和已确认存在的 `target_folder_id`；不传路径、名称或猜测 ID。它引用项目素材时只写真实 `asset_id` / `reference_type`，文件定位由执行器处理。
+- 内部 Agent 只看到创作参数和上述项目语义字段；传输、provider、计费、回调、调试及源文件探测参数全部由 Syncast 管线负责。`media_understand` 中项目资产也只传 `asset_id`，项目外媒体才传 URL。时间轴 Skill 需要的 `source_slot_id` / `source_timeline_id` / `source_slot_label` 是受支持的项目来源元数据，可由内部 Agent 使用，但不属于外部 CLI 参数。
+- 当内部 Agent 的 Imagine 需要确认时，应返回可点击的 Imagine 草稿，不自动执行，也不额外弹通用审批问题。用户已明确要求生成时，内部 Agent必须传 `request_review=false`；自动审查或完全访问权限会直接执行，包括明确授权的批量生成。
 - 其它内部 Agent action 若返回 `agent_action.approval_requested` 通知，外部 Agent 可以自行决定是否批准，也可以先询问用户；若批准，调用 `syncast.agent.approval.respond` 或 CLI `syncast project-agent approval respond <approvalId> --approve`。审批只对该外部 Agent 托管的 pending request 有效。
-- 如果只是给用户多个生成建议、让用户挑选，或用户尚未确认扣费生成，不要调用 `syncast.imagine.submit`。使用 `syncast.imagine.draftMarkdown`，或在内部 Agent 回复中输出语言标记为 `imagine` 的 fenced code block；内容使用和 `imagine(items)` 完全相同的 JSON 对象，并确保每个 item 都有非空 `model_type` 和 `prompt` / `prompt_raw`。引用资产优先写 `references: [{ asset_id, reference_type }]`；兼容旧别名 `reference_assets` / `referenceAssetIds`，但不要编造 asset id。已确认归档目录时，`drafts[]` 传 `targetFolderId`，fenced/raw item 传 `target_folder_id`。Syncast 会把它渲染成“待生成 Imagine 参数”控件，显示参考素材，用户可复制或手动打开 Imagine 编辑器。
-- Seedance 2.0 待生成视频参数如果要使用首帧/尾帧，优先写 `first_frame` / `last_frame`；兼容 `content[]` 时必须在媒体项里带真实 `asset_id` 和 `role: "first_frame"` / `"last_frame"`。Syncast 会导入到首尾帧模式；普通参考素材 `reference_image/video/audio` 会导入到智能参考模式。
-- 一镜到底、视频续接、镜头接镜头、或任何要求上一段尾帧与下一段首帧严格对齐的 Seedance 2.0 首尾帧任务，必须开启几何对齐：调用 `syncast.imagine.submit` 时写 `params: { preserve_geometry: true }`；输出 fenced `imagine` JSON 或 `syncast.imagine.draftMarkdown.items` 时，在对应 item 的模型参数里写 `"preserve_geometry": true`。不要用智能参考模式替代首尾帧模式来做严格续接。
-- 如果 Agent 自己负责连续生成一镜到底片段，发起每一段真实生成后必须等待完成，再读取结果或抽取尾帧安排下一段：可在 `syncast.imagine.submit` 传 `wait: true, timeoutMs: 30 * 60 * 1000`，或提交后调用 `window.__syncastAgent.wait(ref, { returnResult: true })` / `syncast.imagine.wait`。只有生成完成后才能把该段结果当作下一段首帧来源。
-- 图片模型优先 Nano Banana 2 / OpenAI GPT Image 2；图片生成一般只使用 2K，质量使用 `auto`，这是默认最佳组合。
-- 音频中的“音乐 / 歌曲 / BGM / 配乐”优先 Lyria；音频中的“音效 / 环境声 / 拟音 / UI 声 / 冲击音 / loop ambience”优先 `fal-ai/elevenlabs/sound-effects/v2`。这个音效模型最终应使用英文提示词；如用户输入中文，提交链路会自动翻成英文，但外部 Agent 仍应默认直接编写英文音效提示词。Agent Action 传参时使用顶层 `durationSeconds`、`promptInfluence`、`loop`，不要把这些音效参数塞进二级 `params`；`output_format` 不对外暴露，后端固定使用 MP3 44.1kHz / 128kbps。
-- 图片超分/修复模型在 `syncast.imagine.models` 的 `category: "upscale"` 中；`recraft-ai/recraft-crisp-upscale` 适合修复 Nano Banana Pro / GPT Image 2 多轮编辑后的鳞片、噪点、颗粒和崩坏质感，不需要 prompt。
-- 视频生成模型默认推荐 SeedDance 2.0，除非用户明确要求，否则用 Fast 模式；SeedDance 2.0 / Fast 只允许使用 720P，禁止使用 1080P。复杂动作、多主体、高运动量、怪兽或奇幻动作场景优先 `kittyvibe-seedance2.0global`；快速/低成本 Global 预览用 `kittyvibe-seedance2.0fastglobal`。
-- 视频超分/修复模型也在 `category: "upscale"` 中；`topaz/slp-2.5` 适合 AI 生成视频保真增强、去塑料感、提升人脸/材质/文字/logo 清晰度；`fal-ai/topaz/upscale/video` 是 fal 版 Starlight Precise 2.5，适合明确要 fal 或需要 `upscale_factor`、`target_fps`、`compression`、`noise`、`halo`、`grain`、`recover_detail`、`H264_output` 参数时使用；`topaz/ast-2` 适合创意细节重建和 prompt 引导增强。Topaz 直连只用 `target_resolution: "1080p" | "4k"`；fal 版可直接传 `upscale_factor` 覆盖自动换算；Astra 可额外传 `creativity`、`sharp`、`realism`、`prompt`。
-- 要在时间轴上排一组待生成块时，使用 `syncast.timeline.generationSlots.createBatch` 创建 draft slots，让用户逐个手动触发；只有在用户明确确认扣费生成时才调用 `syncast.timeline.generationSlots.submit`。
+- 外部 Agent 可用 `syncast.imagine.models`、`syncast.imagine.estimateCredits`、`syncast.imagine.optimizePrompt` 做发现和准备，但真实生成仍统一交给 `syncast imagine`。
+- 要在时间轴上排一组待生成块时，使用 `syncast.timeline.generationSlots.createBatch` 创建 draft slots，让用户逐个手动触发；外部 API 不暴露 slot submit。
 - 为节省上下文，可以建立本地临时项目计划文件缓存操作记录、资产名称与 ID、文档/章节 ID、Channel 和任务 ref；正式规范和剧本仍应写入 Syncast 项目文档。
-- 任何会消耗积分、写入项目、运行工作流或访问设备的动作，必须先向用户说明风险并获得确认。
-- 使用 `window.__syncastAgent.wait(ref)` 或 `syncast.notifications.list` 判断工作是否完成。
+- 消耗积分、写入项目、运行工作流或访问外部数据时，必须遵守当前 Agent 权限 profile 和 action approval 结果。用户已明确下达生成命令、且 profile 允许自动执行时，不要再追加一轮通用确认。
+- 使用 `window.__syncastAgent.wait(ref)` 或 `window.__syncastAgent.notifications.list(...)` 判断工作是否完成；bridge 会强制限定当前项目，审批通知只对当前外部 Agent 自己托管的请求可见。
 - 如果 action 返回 `not_in_project` 或 `doc_loading`，请让用户打开 Syncast 项目页并等待加载完成。
 
 ## 参考

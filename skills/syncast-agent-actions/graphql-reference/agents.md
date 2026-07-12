@@ -1,6 +1,6 @@
 # Agents GraphQL
 
-用于管理项目内自定义 Agent 定义，以及一个 Agent 对其它 Agent 的命名绑定。发起业务任务使用 `syncast.agent.delegate` 或 `syncast.agent.chat.submit`；选择执行器前先从这里读取真实 Agent ID。
+用于管理项目内自定义 Agent 定义，以及一个 Agent 对其它 Agent 的命名绑定。外部发起业务任务统一使用 `syncast.agent.delegate`；选择执行器前先从这里读取真实 Agent ID。
 
 ## 运行语义
 
