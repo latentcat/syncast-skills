@@ -383,6 +383,11 @@ syncast project-agent capabilities --action syncast.agent.delegate --disclosure 
 
 如果外部 Agent 不能直接在页面 main world 调用 `window.__syncastAgent`，使用 `syncast project-agent`：
 
+注意：页面内的 `syncast.imagine.submit` 仍是内部 Action workflow 能力，但
+`project-agent` CLI 不再把它作为第二套生成入口暴露。CLI 生图统一使用
+`syncast imagine --project <id> --folder <path> --name <name> --prompt <text>`；
+缺失文件夹路径会在项目物化时自动创建。
+
 | CLI | 对应浏览器 API |
 | --- | --- |
 | `syncast project-agent serve` | 启动本地窄口 bridge，等待项目页注册 |

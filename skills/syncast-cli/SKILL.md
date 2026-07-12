@@ -149,6 +149,31 @@ syncast imagine --prompt "sunset over mountains" --format human
 
 Default output is JSON (for agents).
 
+### Deliver an image into a Syncast project
+
+Use the normal `imagine` command. This is the only public CLI generation entry
+point; do not route generation through `project-agent`.
+
+```shell
+syncast imagine \
+  --project <project-id> \
+  --folder "/抖音复现/首帧" \
+  --name "角色A首帧" \
+  --prompt "Generate a cinematic character sheet."
+```
+
+- `--project` enables durable delivery into that project's Assets.
+- `--name` sets the project asset display name.
+- `--folder` accepts a folder name or `/`-separated path. Missing segments are created automatically when Syncast materializes the result. Use `/` or omit it for root.
+- `--folder-id` is an advanced alternative when a verified current-project folder ID is already available. Do not combine it with `--folder`.
+- `--project-id` remains a hidden compatibility alias for `--project`.
+- Project-only fields in raw `--input` require `--project`; explicit CLI flags override raw delivery fields.
+
+Treat `project_delivery.status: "queued"` as the successful handoff contract.
+If generation succeeds but the response does not confirm project delivery, the
+CLI still prints the generated URL and exits non-zero. Do not claim that an
+asset was archived when delivery is missing or failed.
+
 ## Task management
 
 ```shell
@@ -170,37 +195,16 @@ syncast project-agent serve
 syncast project-agent pages
 syncast project-agent capabilities
 syncast project-agent capabilities --action syncast.agent.delegate --disclosure full
-syncast project-agent capabilities --action syncast.imagine.submit --disclosure full
 syncast project-agent run syncast.project.inspect --input '{"limit":20}'
 syncast project-agent run syncast.doc.graphql --input '{"query":"query { agents { agents { id name model allowLoadSkills skills { skillId skillType preload } childAgents { childAgentId alias displayName } } } }"}'
 syncast project-agent run syncast.agent.delegate --input '{"goal":"整理项目方案","executor":{"kind":"model","model":"gemini-3.5-flash"},"wait":false}'
 ```
 
-### Project-aware Imagine naming and folder placement
-
-Project folder placement is an Agent Action capability, not a bare cloud-generation flag. A direct command such as `syncast imagine --project-id <id>` sends project attribution to the generation service, but it does not inspect the opened project's Docs/Assets CRDT, resolve a folder path, or guarantee that the result is materialized into that project's folder tree. Do not pass `target_folder_id` through direct `--input` and claim that the project has been organized.
-
-For a generated asset that must appear in a project folder:
-
-1. Connect the opened project with `syncast project-agent`.
-2. Read relevant project specs and the current Assets tree.
-3. Reuse a real existing folder ID. Only when the user or spec explicitly requires a missing path, call Assets GraphQL `ensureFolderPath` and use the returned `folderId`.
-4. Inspect the current action contract, then pass `targetAssetName` and `targetFolderId` to `syncast.imagine.submit`. Omit `targetFolderId` for the project root.
-
-```shell
-syncast project-agent capabilities \
-  --action syncast.imagine.submit \
-  --disclosure full
-
-syncast project-agent run syncast.assets.folders
-
-syncast project-agent run syncast.imagine.submit \
-  --input '{"modelType":"nano-banana-2","prompt":"Generate a cinematic character sheet.","targetAssetName":"Character A","targetFolderId":"<existing-folder-id>","optimizePrompt":true,"wait":false}'
-```
-
-`targetFolderId` must be a real current-project folder ID, never a name, path, placeholder, or ID copied from another project. A missing/blank field means root. The action rejects an unknown folder at submission with `target_folder_not_found`. If the folder is deleted while generation is running, materialization falls back to root; structured completion paths report `placement_warning: "target_folder_not_found_fell_back_to_root"`.
-
-Prefer direct placement when naming/classification is known from the project spec. Generate to root and move afterward only when classification genuinely depends on inspecting the output.
+`project-agent` is for work that genuinely depends on the opened project's live
+Docs, Assets, timeline, or internal Agents. The CLI intentionally hides and
+rejects `syncast.imagine.submit` / `submitToChannel`; use `syncast imagine
+--project ...` for generation and folder delivery. This avoids a second,
+browser-dependent generation API.
 
 For deterministic delegated work, pass the action input `executor` explicitly:
 
@@ -227,7 +231,7 @@ external Agent may decide itself, or ask the human user first, then respond:
 
 ```shell
 syncast project-agent approval respond <approvalId> --approve
-syncast project-agent approval respond <approvalId> --deny --feedback "User rejected this generation."
+syncast project-agent approval respond <approvalId> --deny --feedback "User rejected this action."
 ```
 
 The CLI command calls `syncast.agent.approval.respond` in the connected project

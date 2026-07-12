@@ -83,8 +83,7 @@ syncast project-agent capabilities --action syncast.agent.delegate --disclosure 
 ```bash
 syncast project-agent run syncast.project.inspect --input '{"limit":20}'
 syncast project-agent run syncast.agent.delegate --input '{"goal":"请整理项目方案并写入项目文档。","executor":{"kind":"model","model":"gemini-3.5-flash"},"wait":false}'
-syncast project-agent capabilities --action syncast.imagine.submit --disclosure full
-syncast project-agent run syncast.imagine.submit --input '{"modelType":"nano-banana-2","prompt":"生成角色设定图","targetAssetName":"角色A","targetFolderId":"<existing-folder-id>","wait":false}'
+syncast imagine --project <project-id> --folder "/角色/设定" --name "角色A" --prompt "生成角色设定图"
 syncast project-agent wait --ref '{"kind":"agent_chat","projectId":"..."}' --return-result
 syncast project-agent asset-download-urls --asset-id "asset-id"
 ```
@@ -178,10 +177,12 @@ await window.__syncastAgent.run("syncast.docs.readForAgent", {
 - Agent-facing GraphQL 和资产 action 会过滤隐藏的 3D/model 资产（`glb` / `stl` / `fbx`）。如果 `asset`、`assetId`、文件夹、时间轴、画布或消息里的资产字段返回 null / 缺失，表示该资产不对外部 Agent 可见，不要绕过 action layer 去读 raw Loro 或构造 mutation 反查 `remoteFilename`。
 - 输入中引用资产和文档时，使用真实 ID 对应的 `@{asset:<assetId>}`、`@{doc:<docId>|<displayName>}`、`@{doc-section:<docId>:<sectionId>|<displayName>}`；发起图片/视频生成前必须用 `syncast.assets.resolveReferences` 等 action 校验引用。
 - 需要把项目资产交给外部 Agent 自行下载时，使用 `syncast.assets.downloadUrls` 或 CLI 便捷命令 `syncast project-agent asset-download-urls --asset-id ...` 获取临时签名 URL。Action 只返回链接和资产元数据，不在浏览器内下载文件；签名 URL 约 1 小时有效，外部 Agent 自行决定下载方式和保存位置。
-- 发起生成时使用 `syncast.imagine.submit`，它会走和手动 Imagine 面板一致的前端入队路径；需要指定生成完成后的资源名称时传 `targetAssetName`，一般开启 `optimizePrompt: true`。提交会内置生成前校验，返回 `validation` 和 `submitted.modelPrompt/finalModelInput`；如果 `validation.ok` 不为 true，或存在 `leftoverTokens/unresolvedMentions`，不得认为生成输入有效。
+- `syncast.imagine.submit` 是页面内 Action Layer 给 Syncast 内部 Agent / 已在页面上下文中的 Action workflow 使用的底层能力，会走和手动 Imagine 面板一致的前端入队路径。它不是公开的 `project-agent` CLI 生成入口；`syncast project-agent run syncast.imagine.submit` 会被 CLI 隐藏并拒绝。
+- 从 CLI 发起生成时统一使用 `syncast imagine --project <id> --folder <path> --name <name> --prompt <text>`。`--folder` 支持名称或路径，缺失段由项目物化时自动创建；只有页面内 Action workflow 才需要把真实 `targetFolderId` 传给 `syncast.imagine.submit`。
 - 生成前先读相关项目规范 Docs，再用 `syncast.assets.folders` / `syncast.assets.browse` 检查当前目录。规范已明确分类时，复用真实 folder ID；只在用户或规范明确要求且路径不存在时，才用 Assets GraphQL `ensureFolderPath` 创建/复用路径，并把它返回的 `folderId` 传为 `targetFolderId`。不要传名称、路径或猜测 ID；无明确目标时省略字段，结果进根目录。
 - 对命名和分类规则已确定的中间产物，优先在提交生成时同时传 `targetAssetName` 和 `targetFolderId`，直接落到唯一初始目录。只有归类必须依赖实际生成内容时，才先生成到根目录、验收后再调用移动。提交时目录不存在会返回 `target_folder_not_found`；运行中目录被删除时，物化会回退根目录，支持结构化完成结果的路径会返回 `placement_warning: "target_folder_not_found_fell_back_to_root"`。
-- 当内部 Agent 或 action bridge 返回 `agent_action.approval_requested` 通知时，外部 Agent 可以自行决定是否批准，也可以先询问用户；若批准，调用 `syncast.agent.approval.respond` 或 CLI `syncast project-agent approval respond <approvalId> --approve`。审批只对该外部 Agent 托管的 pending request 有效。
+- 当内部 Agent 的 Imagine 需要确认时，应返回可点击的 Imagine 草稿，不自动执行，也不额外弹通用审批问题。用户已明确要求生成时，内部 Agent 必须传 `request_review=false`；自动审查或完全访问权限会直接执行，包括明确授权的批量生成。
+- 其它内部 Agent action 若返回 `agent_action.approval_requested` 通知，外部 Agent 可以自行决定是否批准，也可以先询问用户；若批准，调用 `syncast.agent.approval.respond` 或 CLI `syncast project-agent approval respond <approvalId> --approve`。审批只对该外部 Agent 托管的 pending request 有效。
 - 如果只是给用户多个生成建议、让用户挑选，或用户尚未确认扣费生成，不要调用 `syncast.imagine.submit`。使用 `syncast.imagine.draftMarkdown`，或在内部 Agent 回复中输出语言标记为 `imagine` 的 fenced code block；内容使用和 `imagine(items)` 完全相同的 JSON 对象，并确保每个 item 都有非空 `model_type` 和 `prompt` / `prompt_raw`。引用资产优先写 `references: [{ asset_id, reference_type }]`；兼容旧别名 `reference_assets` / `referenceAssetIds`，但不要编造 asset id。已确认归档目录时，`drafts[]` 传 `targetFolderId`，fenced/raw item 传 `target_folder_id`。Syncast 会把它渲染成“待生成 Imagine 参数”控件，显示参考素材，用户可复制或手动打开 Imagine 编辑器。
 - Seedance 2.0 待生成视频参数如果要使用首帧/尾帧，优先写 `first_frame` / `last_frame`；兼容 `content[]` 时必须在媒体项里带真实 `asset_id` 和 `role: "first_frame"` / `"last_frame"`。Syncast 会导入到首尾帧模式；普通参考素材 `reference_image/video/audio` 会导入到智能参考模式。
 - 一镜到底、视频续接、镜头接镜头、或任何要求上一段尾帧与下一段首帧严格对齐的 Seedance 2.0 首尾帧任务，必须开启几何对齐：调用 `syncast.imagine.submit` 时写 `params: { preserve_geometry: true }`；输出 fenced `imagine` JSON 或 `syncast.imagine.draftMarkdown.items` 时，在对应 item 的模型参数里写 `"preserve_geometry": true`。不要用智能参考模式替代首尾帧模式来做严格续接。
