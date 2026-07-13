@@ -145,7 +145,7 @@ Agent 输入、文档输入和 Imagine 输入都支持 `@` 引用项目内容。
 发起生成时应像人类一样选择合适模型和参数：
 
 - 独立优化：调用 `syncast.imagine.optimizePrompt`。
-- 真实生成：只需 API 结果或 Assets 投递时使用 `syncast imagine [--project ...]`；需要保留项目 ImagineChannel 历史时使用公开的 `syncast.imagine.submitToChannel`。
+- 真实生成：如果用户未说明项目内工作还是项目外独立资产，必须先询问。项目内未指定频道时使用 `syncast.imagine.submit`，指定真实现有频道时使用 `syncast.imagine.submitToChannel`；项目内禁止使用直接生成 CLI。只有用户明确选择项目外独立资产时才使用 `syncast imagine` / `video` / `audio` / `music` / `sound-effect`。
 
 图片/视频生成前必须确认：
 
@@ -154,8 +154,8 @@ Agent 输入、文档输入和 Imagine 输入都支持 `@` 引用项目内容。
 - 预计积分消耗和余额。
 - 所有参考资产都已解析到正确 ID。
 - 输出资产命名是否清晰，例如角色、场景、关键帧编号和镜头编号。
-- 如果规范已确定归档目录，CLI 直接传用户可读的 `--folder <name-or-path>`；缺失路径自动创建。只有已经拿到真实 ID 时才使用 `--folder-id`。
-- 对分类确定的中间产物，提交生成时直接携带 `--name` + `--folder`；只在需要根据实际画面/内容再分类时使用生成后移动。
+- 如果规范已确定归档目录，先在当前项目解析或创建目录，再把真实 `targetFolderId` 传给项目 Imagine Action；不要向项目 Action 猜名称或路径。
+- 对分类确定的中间产物，提交生成时直接携带 `targetAssetName` + `targetFolderId`；只在需要根据实际画面/内容再分类时使用生成后移动。
 
 ## 项目规范与文档组织
 
@@ -294,7 +294,7 @@ AI 页包含两类核心能力：
 Agent 判断：
 
 - 如果任务需要创意判断、项目方案、视频工作流、文档产出，优先用 `syncast.agent.delegate` 委托内部 Agent。
-- 如果任务是明确生成图片/视频，先判断是否需要 ImagineChannel 历史：需要则走 Action Bridge `submitToChannel`，否则走直接 CLI `syncast imagine [--project ...]`。
+- 如果任务是明确生成图片/视频，先判断用户是在项目中工作还是只要项目外独立资产；不明确就先询问。项目内默认走 Action Bridge `syncast.imagine.submit`，只有指定真实现有频道才用 `submitToChannel`，不得回退到直接 CLI。
 - 生成前先调用 `syncast.billing.summary` 或 `syncast.imagine.estimateCredits` 告知余额和预计消耗。
 
 执行前确认：
@@ -336,7 +336,7 @@ Agent 判断：
 7. 如果项目内容不足，向用户汇报缺口：缺规范、缺素材、缺画布结构、缺时间轴或缺任务结果。
 8. 如果需要业务创作，优先用 `syncast.agent.delegate` 委托内部 Agent。
 9. 如果需要排布待生成镜头，优先创建时间轴 AI Slot；协作模式让用户先检查，明确授权代操作时可用 `syncast.timeline.generationSlots.submit` 触发。
-10. 如果需要生成素材，先读相关规范和当前 Assets 目录，解析并校验引用、确认目标命名/目录、估算积分；需要频道记录时用 `syncast.imagine.submitToChannel`，只需 API/Assets 交付时用 `syncast imagine [--project ...]`；需要时先单独调用 `syncast.imagine.optimizePrompt`。
+10. 如果需要生成素材，先读相关规范和当前 Assets 目录，解析并校验引用、确认目标命名/目录、估算积分；未指定频道时用 `syncast.imagine.submit`，指定现有频道时用 `syncast.imagine.submitToChannel`，文档块或时间轴 Slot 使用专用 Action；项目内始终禁止直接生成 CLI。需要时先单独调用 `syncast.imagine.optimizePrompt`。
 11. 等待长任务完成：`window.__syncastAgent.wait(ref, { returnResult: true })`。
 12. 读取结果并复查：文档用 `syncast.docs.readForAgent`，资源用 `syncast.assets.browse/list/get`，频道用 `syncast.channel.messages.list/get`，时间轴用 `syncast.timeline.get`。
 13. 向用户汇报完成内容、产物位置、风险和下一步建议。

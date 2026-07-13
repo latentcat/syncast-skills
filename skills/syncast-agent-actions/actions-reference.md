@@ -286,29 +286,29 @@ await window.__syncastAgent.run("syncast.assets.materializeMediaSegments", {
 | `syncast.imagine.submit` | edit | `{ modelType, prompt, channelId?, params?, references?, count?, targetAssetName?, targetFolderId?, ... }` | Imagine task `ref`、messageId、taskIds | 自动解析或创建 Agent Imagine 频道，并持久化生成记录 |
 | `syncast.imagine.submitToChannel` | edit | `{ channelId, modelType, prompt, params?, references?, count?, targetAssetName?, targetFolderId?, ... }` | Imagine task `ref`、messageId、taskIds | 向指定现有 Imagine 频道提交，保留与用户操作一致的提示词/参数/状态/结果历史 |
 
-`syncast.imagine.models` 默认等价于 `{ disclosure: "recommended", category: "all", includeSchemas: true }`。推荐图片模型优先 `nano-banana-2` 和 `oai-gpt-image-2`；图片一般只使用 2K，质量使用 `auto`。推荐视频生成模型只推荐 SeedDance 2.0；常规生成使用 `kittyvibe-seedance2.0pro`，快速预览或低成本需求使用 `kittyvibe-seedance2.0fast`。复杂动作、多主体、高运动量、怪兽或奇幻动作场景推荐 `kittyvibe-seedance2.0global`；快速/低成本 Global 预览推荐 `kittyvibe-seedance2.0fastglobal`。推荐音频模型分两类：音乐/配乐优先 `lyria-3-clip` / `lyria-3-pro`，音效/环境声/拟音/UI 声优先 `fal-ai/elevenlabs/sound-effects/v2`。这个音效模型最终应提交英文提示词；如果用户原文是中文，提交链路会自动翻成英文，但外部 Agent 仍应优先直接编写英文声音描述。Eleven 音效参数使用顶层 `durationSeconds`、`promptInfluence`、`loop`；不要暴露或传入 `output_format`，后端固定使用 MP3 44.1kHz / 128kbps。SeedDance 2.0 / Fast 只允许 720P，禁止 1080P。图片和视频超分/修复模型归在 `category: "upscale"`：`recraft-ai/recraft-crisp-upscale` 适合修复 Nano Banana Pro、GPT Image 2 等模型多轮编辑后的鳞片、噪点、颗粒和崩坏质感；`topaz/slp-2.5` 适合 AI 生成视频保真增强、去塑料感、提升人脸/材质/文字/logo 清晰度；`fal-ai/topaz/upscale/video` 是 fal 版 Starlight Precise 2.5，支持 `upscale_factor`、`target_fps`、`compression`、`noise`、`halo`、`grain`、`recover_detail`、`H264_output`；`topaz/ast-2` 适合创意细节重建和 prompt 引导增强，支持 `creativity`、`sharp`、`realism`、`prompt`。如果用户明确需要其它模型，再调用 `{ disclosure: "all", includeSchemas: false }` 查看其它模型名称；只有真正要使用某个非推荐模型时，才调用 `{ disclosure: "all", includeSchemas: true }` 获取完整 schema。
+`syncast.imagine.models` 默认等价于 `{ disclosure: "recommended", category: "all", includeSchemas: true }`，并通过 `recommended.defaultModelTypes` 返回意图级默认值。推荐图片模型包括 `nano-banana-2`、`nano-banana-pro`、`seedream-5-0-pro`、`gpt-image-2`、`oai-gpt-image-2`；普通任务默认 `nano-banana-2`，图片一般只使用 2K，质量使用 `auto`。推荐视频生成模型只推荐 SeedDance 2.0；常规生成使用 `kittyvibe-seedance2.0pro`，快速预览或低成本需求使用 `kittyvibe-seedance2.0fast`。复杂动作、多主体、高运动量、怪兽或奇幻动作场景推荐 `kittyvibe-seedance2.0global`；快速/低成本 Global 预览推荐 `kittyvibe-seedance2.0fastglobal`。已退役的 `seedance2.0pro` / `seedance2.0fast` 不再披露；历史草稿或 Action 输入中的旧名会分别归一化到 KittyVibe Pro / Fast。推荐音频按意图区分：完整音频/场景化配音使用 `bytedance/seed-audio-1.0`，歌曲/纯音乐/BGM/配乐使用 `zhenzhen-suno-v5.5`，独立音效/环境声/拟音/UI 声使用 `fal-ai/elevenlabs/sound-effects/v2`，干净稳定的长文 TTS 默认使用 `minimax/speech-2.8-hd`。Lyria 3 是显式音乐备选，不是默认音乐路线。Suno 的模型能力会披露 `description`、`custom`、`extend`、`cover` 和歌词模式；`extend` / `cover` 必须提供一个真实 audio reference。Eleven 音效最终应提交英文提示词；如果用户原文是中文，提交链路会自动翻成英文，但外部 Agent 仍应优先直接编写英文声音描述。Eleven 音效参数使用顶层 `durationSeconds`、`promptInfluence`、`loop`；不要暴露或传入 `output_format`，后端固定使用 MP3 44.1kHz / 128kbps。SeedDance 2.0 / Fast 只允许 720P，禁止 1080P。图片和视频超分/修复模型归在 `category: "upscale"`：`recraft-ai/recraft-crisp-upscale` 适合修复 Nano Banana Pro、GPT Image 2 等模型多轮编辑后的鳞片、噪点、颗粒和崩坏质感；`topaz/slp-2.5` 适合 AI 生成视频保真增强、去塑料感、提升人脸/材质/文字/logo 清晰度；`fal-ai/topaz/upscale/video` 是 fal 版 Starlight Precise 2.5，支持 `upscale_factor`、`target_fps`、`compression`、`noise`、`halo`、`grain`、`recover_detail`、`H264_output`；`topaz/ast-2` 适合创意细节重建和 prompt 引导增强，支持 `creativity`、`sharp`、`realism`、`prompt`。如果用户明确需要其它模型，再调用 `{ disclosure: "all", includeSchemas: false }` 查看其它模型名称；只有真正要使用某个非推荐模型时，才调用 `{ disclosure: "all", includeSchemas: true }` 获取完整参数能力。
 
 积分估算来自前端本地定价表，真实扣费以后端 reserve / settle 为准。外部 Agent 在批量生成前可调用 `syncast.billing.summary` 和 `syncast.imagine.estimateCredits`。
 
 提示词优化会复用前端的 `imagine_prompt_optimize` Response API 和白名单过滤逻辑。输入中的资产引用应使用内部 token 形式 `@{asset:<assetId>}`；如果外部 Agent 只有人类可读名称，先用 `syncast.assets.list { query }` 找到唯一 assetId，再写入 prompt 或传入 `references`。优化结果会经过 sanitize：不允许模型新增未在原始 prompt / references / 首尾帧中的资产或文档 token。
 
-生成前先明确需要哪一种契约：
+生成前先明确工作归属：如果用户没有说明是在 Syncast 项目中工作，还是只要独立资产在项目外查看，必须先询问。用户一旦选择项目内工作，就必须连接项目并使用以下 Action；是否主动要求频道历史不再是路由条件。
 
-- 把 CLI 当作直接生成 API，只需要下载结果或投递项目 Assets，不需要频道消息：
+- 项目内没有指定现有 ImagineChannel：
 
 ```bash
-syncast imagine --project <project-id> --folder <name-or-path> --name <asset-name> --prompt <text>
+syncast project-agent run syncast.imagine.submit --input '{"modelType":"nano-banana-2","prompt":"生成角色设定图","targetAssetName":"角色A"}'
 ```
 
-- 与已打开项目交互，要求像用户在 ImagineChannel 中操作并保留完整生成记录：
+- 项目内指定了真实的现有 ImagineChannel：
 
 ```bash
 syncast project-agent run syncast.imagine.submitToChannel --input '{"channelId":"<imagine-channel-id>","modelType":"nano-banana-2","prompt":"生成角色设定图","targetAssetName":"角色A"}'
 ```
 
-`syncast.imagine.submit` 也走前端频道持久化链路，但允许自动解析或创建 Agent Imagine 频道。草稿编译器等底层实现仍不对外暴露。
+`syncast.imagine.submit` 是项目内默认入口，会自动解析或创建 Agent Imagine 频道。草稿编译器等底层实现仍不对外暴露。只有用户明确选择项目外独立资产或明确要求 standalone generation API 时，才使用 `syncast imagine` / `video` / `audio` / `music` / `sound-effect`；项目内禁止回退到这些直接命令，包括 `--project` 变体。
 
-`--folder` 接受名称或路径，缺失目录段由项目物化流程创建；已有真实 ID 时可用高级参数 `--folder-id`。引用本地文件用 `--reference-image`，引用项目内图片 ID 用 `--reference-asset`；不要自行获取或传递项目存储 key，也不要把页面内部的目录、时间轴来源或 provider 回调字段当成 CLI 参数。
+项目 Action 的目标目录使用当前项目中已校验的 `targetFolderId`，项目引用素材使用真实 Asset ID。不要自行获取或传递项目存储 key，也不要猜目录或资产 ID。所需本地文件尚未进入项目时，先请用户导入目标项目，不得为了使用 `--reference-image` 而切回 standalone 路线。
 
 视频生成建议：
 
@@ -379,8 +379,7 @@ syncast project-agent capabilities --action syncast.agent.delegate --disclosure 
 如果外部 Agent 不能直接在页面 main world 调用 `window.__syncastAgent`，使用 `syncast project-agent`：
 
 注意：Action Bridge 的 `syncast.imagine.submit` / `submitToChannel` 是公开的
-项目交互能力，会写入 Imagine 频道历史。直接 `syncast imagine --project ...`
-是生成 API + Assets 投递，不会创建频道消息；缺失文件夹路径会在项目物化时自动创建。
+项目交互能力，会写入 Imagine 频道历史。项目内工作必须使用它们或文档/时间轴专用 Action。直接 `syncast imagine --project ...` 只是低层兼容 API + Assets 投递，不会创建频道消息，外部 Agent 不得用它替代项目流程。
 
 | CLI | 对应浏览器 API |
 | --- | --- |
@@ -452,17 +451,14 @@ const outline = await window.__syncastAgent.run("syncast.docs.readForAgent", {
 
 这是外部 Agent 的主路径：外部 Agent 负责指挥和验收，内部 Agent 负责 Syncast 业务产出。
 
-### 3. 发起 Imagine 并归档到项目
+### 3. 在项目中发起 Imagine 并归档
 
 ```bash
-syncast imagine \
-  --project <project-id> \
-  --folder "视觉/概念图" \
-  --name "电影感概念图" \
-  --prompt "请基于项目资源生成一张电影感概念图。"
+syncast project-agent run syncast.imagine.submit \
+  --input '{"modelType":"nano-banana-2","prompt":"请基于项目资源生成一张电影感概念图。","targetAssetName":"电影感概念图","targetFolderId":"<verified-folder-id>"}'
 ```
 
-这是唯一的外部 CLI 生成入口；生成产物由项目物化流程写入指定目录。
+未指定频道时这是默认项目生成入口；它自动解析或创建 Agent Imagine Channel，并把生成记录和产物留在项目中。`targetFolderId` 必须来自当前项目；没有明确目录时省略。
 
 ### 4. 通过资源名称找到唯一 ID
 
@@ -494,8 +490,10 @@ const result = await window.__syncastAgent.wait(savedRef, {
 
 - 想知道项目里有什么：用 `syncast.project.inspect`。
 - 想让 Syncast 自己生成方案、文档、视频思路：用 `syncast.agent.delegate`。
-- 想直接调用生成 API 并投递 Assets：用 `syncast imagine --project ... --folder ... --name ...`。
-- 想在项目 ImagineChannel 中留下生成记录：用 `syncast.imagine.submitToChannel`。
+- 用户没说明项目内还是项目外：先询问，不得生成。
+- 想在项目中生成且未指定频道：用 `syncast.imagine.submit`。
+- 想在指定项目 ImagineChannel 中生成：用 `syncast.imagine.submitToChannel`。
+- 用户明确只要项目外独立资产：离开本项目 Skill，使用 `syncast-cli` 的 standalone 命令。
 - 想知道余额或生成预计消耗：用 `syncast.billing.summary` / `syncast.imagine.estimateCredits`。
 - 想查资源：用 `assets.list/get/browse`；想查文档：统一用 `docs.readForAgent`。
 - 想做精确 Loro 数据读写：用 `syncast.doc.graphql`。

@@ -146,7 +146,8 @@ mutation SetSlotOutput($timelineId: String!, $clipId: String!, $input: Generatio
 }
 ```
 
-External Actions create and update draft slots only. Let the user trigger a slot
-in Syncast, or generate through `syncast imagine` and explicitly adopt the
-resulting asset with `setGenerationSlotOutput`; the internal slot-submit action
-is not exposed through the external bridge.
+Use External Actions to create and update draft slots. Let the user trigger a
+slot in Syncast, or—when the user has authorized the external Agent to execute
+it—call the public `syncast.timeline.generationSlots.submit` Action. Do not
+generate outside the project and manually adopt the result as a substitute for
+the Slot submission chain.

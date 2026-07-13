@@ -92,9 +92,10 @@ Variables:
 
 For an internal Syncast Agent `imagine` call, pass the returned `folderId` as
 `target_folder_id`; the internal Agent contract never accepts a folder path. For
-external CLI generation, prefer the user-facing `syncast imagine --folder
-<name-or-path>` and let project materialization create missing path segments.
-If no explicit destination is required, omit the folder option and use Assets root.
+an external Agent operating the project, pass the verified ID as
+`targetFolderId` to `syncast.imagine.submit` / `submitToChannel`. If no explicit
+destination is required, omit it and use Assets root. Do not leave the project
+flow and use direct CLI folder-path delivery.
 
 Move assets into an existing or newly-created folder path:
 

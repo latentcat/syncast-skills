@@ -178,18 +178,15 @@ await window.__syncastAgent.run("syncast.imagine.estimateCredits", {
 });
 ```
 
-外部生成统一走 `syncast imagine`，不调用页面内部 submit Action：
+项目内生成统一走公开的 Imagine submit Action。未指定现有频道时默认使用
+`syncast.imagine.submit`，让前端自动解析或创建 Agent Imagine Channel：
 
 ```bash
-syncast imagine \
-  --project <project-id> \
-  --folder "/Characters/Designs" \
-  --name "项目概念板A" \
-  --model nano-banana-2 \
-  --prompt "请基于选中的项目资源生成一个电影感项目概念板。"
+syncast project-agent run syncast.imagine.submit \
+  --input '{"modelType":"nano-banana-2","prompt":"请基于选中的项目资源生成一个电影感项目概念板。","targetAssetName":"项目概念板A","targetFolderId":"<verified-folder-id>"}'
 ```
 
-`--folder` 支持名称或路径，缺失段由项目物化流程自动创建；已有真实 folder ID 时可改用 `--folder-id`。`--name` 是资源显示名。引用本地图片使用可重复的 `--reference-image`，引用项目内图片使用 `--reference-asset <asset-id>`。页面内部 `targetFolderId`、source slot provenance、provider callback/metadata 等字段不是外部 CLI 参数。
+`targetFolderId` 必须来自当前项目的真实目录；没有明确目录时省略。引用项目内图片时把真实 Asset ID 放入 Action `references`。如果所需本地文件尚未进入项目，先请用户导入目标项目，不得因此切回直接 CLI。只有用户明确选择项目外独立资产时，才使用 `syncast-cli` 的 standalone 生成命令。
 
 模型建议：
 
