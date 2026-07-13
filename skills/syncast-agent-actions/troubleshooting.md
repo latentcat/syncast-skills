@@ -48,7 +48,7 @@ GraphQL 字段用 camelCase；Library 本地资源包字段则先运行 `syncast
 
 ## `action_not_exposed`
 
-调用了页面内部实现、兼容别名或重复 transport action。不要换名字猜测；重新调用 `window.__syncastAgent.capabilities(...)` 或 `syncast project-agent capabilities`，只使用返回的外部高层 action。生成任务统一改用 `syncast imagine --project ... --folder ... --name ...`。
+调用了真正的页面内部实现、兼容别名或重复 transport action。不要换名字猜测；重新调用 `window.__syncastAgent.capabilities(...)` 或 `syncast project-agent capabilities`，只使用返回的外部高层 action。`syncast.imagine.submit` 和 `syncast.imagine.submitToChannel` 是公开能力；若它们未出现，通常是页面或 CLI 版本过旧。只需直接 API/Assets 交付时才改用 `syncast imagine [--project ...]`。
 
 ## Agent Skill / binding 异常
 

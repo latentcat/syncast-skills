@@ -233,7 +233,36 @@ await window.__syncastAgent.run("syncast.timeline.generationSlots.createBatch", 
 });
 ```
 
-用户从 slot 手动生成时，会沿用 slot input 里的 `targetAssetName` 和 `targetFolderId`。外部 Action API 只负责创建和更新 draft slot，不暴露内部 slot submit。
+用户或已获授权的外部 Agent 从 Slot 生成时，都会沿用 Slot input 里的 `targetAssetName` 和 `targetFolderId`。协作模式可停在 draft；需要代用户触发时调用：
+
+```ts
+await window.__syncastAgent.run("syncast.timeline.generationSlots.submit", {
+  timelineId: "<timeline-id>",
+  clipId: "<slot-clip-id>",
+});
+```
+
+## 生成文档内 Imagine 块
+
+文档里已经有待生成 Imagine 块时，不要把参数复制到直接 CLI 或普通 ImagineChannel；那样不会把结果回填原块。单块生成：
+
+```ts
+await window.__syncastAgent.run("syncast.docs.imagineBlocks.submit", {
+  docId: "<doc-id>",
+  blockId: "<imagine-block-id>"
+});
+```
+
+等同人类点击文档顶部“批量生成待生成”：
+
+```ts
+const batch = await window.__syncastAgent.run(
+  "syncast.docs.imagineBlocks.submitBatch",
+  { docId: "<doc-id>" }
+);
+```
+
+如只生成选中的块，传 `blockIds`。批量 action 并行启动各块入队，返回独立的 `submissions[].ref`；单块失败记录在 `failures`，不会阻塞其它块。后续分别等待这些 ref，并检查原文档块是否已被生成资产替换。
 
 ## 关键帧生成
 

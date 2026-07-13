@@ -1,11 +1,11 @@
 # Syncast Agent Actions 参考
 
-这份文档是外部 Agent 操作 Syncast 网页的完整能力索引。当前外部 Agent Action Layer 显式暴露 **33 个高层 action**，分成两类：
+这份文档是外部 Agent 操作 Syncast 网页的完整能力索引。当前外部 Agent Action Layer 显式暴露 **38 个高层 action**，分成两类：
 
 - **项目业务能力**：项目上下文、GraphQL/Loro、时间轴草稿、频道、消息、资源、文档、任务、模型查询和内部 Agent 委托。
 - **Bridge 便捷方法**：身份初始化、能力发现、等待/取结果、通知和历史；这些 transport 方法不再重复注册成 action。
 
-内部 Syncast Agent 的 `imagine` 工具、页面 Imagine 提交实现、原始 chat submit、typed wait/result、通知 action 和兼容 list/search/get 别名不属于外部接口。它们不会出现在外部 capabilities 中，直接通过 browser/CLI bridge 调用会返回 `action_not_exposed`。
+内部 Syncast Agent 的工具协议、Imagine 草稿渲染器、重复的 typed wait/result 与通知 action、底层 `agent.chat.submit` 输入面，以及兼容 list/search/get 别名不属于外部接口。它们不会出现在外部 capabilities 中，直接通过 browser/CLI bridge 调用会返回 `action_not_exposed`。对应的用户等价操作分别由公开的 Imagine submit、`agent.delegate`、`window.__syncastAgent.wait` / CLI wait 和规范读写 action 提供。
 
 如果你还不了解 Syncast 平台本身，先读 [platform-guide.md](platform-guide.md)。本文件只解释“怎么调用能力”，不替代平台创作流程判断。
 
@@ -140,7 +140,7 @@ await window.__syncastAgent.run("syncast.doc.graphql", {
 
 ### 时间轴 / AI 占位 Slot
 
-这些 action 是对 monodoc 时间轴 GraphQL 的 Agent 友好封装。外部 Agent 可以排一组待生成的 draft blocks，让用户在时间轴或 Imagine 面板里逐个手动触发生成；页面内部的 slot submit 不属于外部 API。
+这些 action 是对 monodoc 时间轴 GraphQL 和前端生成链路的 Agent 友好封装。外部 Agent 可以先排一组待生成的 draft blocks，也可以在用户已授权执行时像用户点击 Slot 生成按钮一样提交单个 Slot。
 
 | Action | 权限 | 输入 | 输出 | 用途 |
 | --- | --- | --- | --- | --- |
@@ -150,6 +150,7 @@ await window.__syncastAgent.run("syncast.doc.graphql", {
 | `syncast.timeline.generationSlots.create` | edit | `{ timelineId, slot }` | 新 draft slot | 添加单个待生成块，不立即扣费生成 |
 | `syncast.timeline.generationSlots.createBatch` | edit | `{ timelineId?, timelineName?, width?, height?, frameRate?, slots[] }` | 时间轴和一组 draft slots | 一次性排一组镜头/角色/素材占位块 |
 | `syncast.timeline.generationSlots.updateInput` | edit | `{ timelineId, clipId, patch }` | 更新后的 slot | 修改 prompt、modelType、references、targetAssetName、targetFolderId 等 |
+| `syncast.timeline.generationSlots.submit` | edit | `{ timelineId, clipId, channelId?, wait?, timeoutMs? }` | Imagine task `ref` 与 Slot 来源关联 | 等同用户点击指定 AI Slot 的生成按钮 |
 
 `slot` 的核心字段：
 
@@ -194,6 +195,7 @@ await window.__syncastAgent.run("syncast.doc.graphql", {
 | `syncast.assets.get` | read | `{ assetId, disclosure?, includeGenParams? }` | 默认单个资源摘要；可展开 folderIds/genParams | 精确读取资源 |
 | `syncast.assets.frames` | read | `{ assetId, startTimeSeconds?, endTimeSeconds?, maxFrames?, includeContactSheet? }` | 关键帧/contact sheet | 按需读取视频视觉上下文 |
 | `syncast.assets.downloadUrls` | read | `{ assetIds?, assetNames?, references? }` | `downloads[]` 临时签名 URL、`missing[]`、`failures[]` | 给外部 Agent 返回项目资产原文件下载链接，不在 Action 内下载 |
+| `syncast.assets.materializeMediaSegments` | edit | `{ sourceAssetId, segments: [{ segmentId?, startTimeSeconds, endTimeSeconds, assetName? }], targetFolderId? }` | 顺序稳定的 `results[]`；成功项包含可直接引用的普通 `assetId`，并返回 success/failed 计数 | 完整区间复用源资产、相同内容复用已有资产、不同内容才创建新资产；部分失败不回滚成功项 |
 
 `folderId` 可传真实文件夹 ID，也可传特殊值：`__ROOT__` 表示文件夹外根目录资产，`__UNCATEGORIZED__` 表示既不在文件夹中也不在根目录索引中的未分类资产。需要包含子文件夹时设置 `includeSubfolders: true`。
 
@@ -221,6 +223,22 @@ await window.__syncastAgent.run("syncast.assets.downloadUrls", {
 });
 ```
 
+把一分钟音频的四个 15 秒分段解析为可引用资产：
+
+```ts
+await window.__syncastAgent.run("syncast.assets.materializeMediaSegments", {
+  sourceAssetId: "audio-asset-id",
+  segments: [
+    { segmentId: "part-1", startTimeSeconds: 0, endTimeSeconds: 15 },
+    { segmentId: "part-2", startTimeSeconds: 15, endTimeSeconds: 30 },
+    { segmentId: "part-3", startTimeSeconds: 30, endTimeSeconds: 45 },
+    { segmentId: "part-4", startTimeSeconds: 45, endTimeSeconds: 60 }
+  ]
+});
+```
+
+省略 `targetFolderId` 时，资产跟随源资产目录。完整源区间会直接返回源 `assetId`，不下载、不裁切、不重新上传；其它区间若产物内容与项目内已有 Asset 相同，也会复用已有 ID。只有内容不同的区间才创建和上传新 Asset。结果中的成功 `assetId` 可直接作为后续工具的普通项目资产引用；不要继续把源资产加虚拟 start/end 当作切片结果。
+
 ```text
 @{asset:<assetId>}
 @{doc:<docId>|<displayName>}
@@ -232,10 +250,14 @@ await window.__syncastAgent.run("syncast.assets.downloadUrls", {
 | Action | 权限 | 输入 | 输出 | 用途 |
 | --- | --- | --- | --- | --- |
 | `syncast.docs.readForAgent` | read | `{ mode?, docId?, query?, target?, sectionId?, startBlockIndex?, endBlockIndex?, cursor?, loadedContextKeys?, skipLoaded?, maxChars?, changedSince?, limit?, offset? }` | 直接返回 canonical `docRead` 结构：`documents/outline/hits/content/contextKey/nextCursor` | 给外部 Agent 渐进式读取内部 Agent 写出的文档 |
+| `syncast.docs.imagineBlocks.submit` | edit | `{ docId, blockId }` | 单块 `submission`、任务 `ref` 和汇总计数 | 等同点击文档内单个待生成 Imagine 块的生成按钮 |
+| `syncast.docs.imagineBlocks.submitBatch` | edit | `{ docId, blockIds? }` | `submissions/failures/skipped` 与对应计数 | 等同顶部“批量生成待生成”；省略 `blockIds` 时提交全部待生成块 |
 
 `syncast.docs.readForAgent` 默认只返回索引，不返回正文，并且语义与 monodoc GraphQL 的 `docRead` 保持一致。典型流程是：先 `{ mode: "index" }` 看文档地图，再 `{ mode: "outline", docId }` 取真实 `sectionId` / `startBlockIndex` / `endBlockIndex`，最后 `{ mode: "content", docId, target: "section", sectionId, maxChars, loadedContextKeys }` 读取必要正文。继续读取使用返回的 `nextCursor`，去重使用 `contextKey`。全文只在用户明确需要时使用 `{ mode: "content", target: "full" }`。
 
 文档写入如果是简单结构化 mutation，可用 `syncast.doc.graphql` 的 `createDocPage`、`updateDocPage`、`moveDocPage`、`moveDocPageBefore`、`moveDocPageAfter`、`deleteDocPage`、`patchDoc`、`setDocBlocks`。如果是业务性内容创作，优先用 `syncast.agent.delegate` 让内部 Agent 完成。
+
+文档 Imagine 块生成必须使用上述高层 action，不能通过 `syncast.doc.graphql` 手动把块改成 `generating`，也不能用普通 `syncast.imagine.submitToChannel` 代替：只有文档 action 会保留 `docId/blockId` 目标并在完成后把资产替换回原块。`submitBatch` 会同时启动所有选中项的入队；一个块失败只进入 `failures`，不会阻塞其它块。每个成功项都有独立 `submission.ref`，可分别用 bridge `wait` 等待。
 
 项目骨架或模板式初始化不要直接写 Loro、IndexedDB 或后端数据库。复用已发布的模板包时，走 App/Library/CLI 的项目模板包导入路线；如果用户明确要求外部 Agent 在当前项目内创建结构，使用 GraphQL 的幂等 mutation：Docs 用 `createDocPage(..., idempotencyKey)` 建树，再用 `patchDoc` 或 `setDocBlocks` 写内容；资源目录用 `ensureFolderPath(input: { path: "/Shots/Act 1" })` 创建或复用文件夹，需要搬运资产时再用 `moveAssetsToFolder` 的 `folderPath`。
 
@@ -261,6 +283,8 @@ await window.__syncastAgent.run("syncast.assets.downloadUrls", {
 | `syncast.imagine.models` | read | `{ disclosure?, category?, includeSchemas? }`，`category` 支持 `image` / `video` / `audio` / `upscale` / `all` | 渐进式模型披露 | 默认只看推荐模型；需要时再展开完整模型 |
 | `syncast.imagine.estimateCredits` | read | `{ modelType, params?, count? }` | 本地积分估算、当前余额、是否足够 | 发起生成前预估成本 |
 | `syncast.imagine.optimizePrompt` | read | `{ prompt, modelType, params?, references?, firstFrameAssetId?, lastFrameAssetId?, locale? }` | `{ optimizedPrompt, rawOptimizedPrompt, modelType }` | 复用人类前端“优化提示词”按钮链路 |
+| `syncast.imagine.submit` | edit | `{ modelType, prompt, channelId?, params?, references?, count?, targetAssetName?, targetFolderId?, ... }` | Imagine task `ref`、messageId、taskIds | 自动解析或创建 Agent Imagine 频道，并持久化生成记录 |
+| `syncast.imagine.submitToChannel` | edit | `{ channelId, modelType, prompt, params?, references?, count?, targetAssetName?, targetFolderId?, ... }` | Imagine task `ref`、messageId、taskIds | 向指定现有 Imagine 频道提交，保留与用户操作一致的提示词/参数/状态/结果历史 |
 
 `syncast.imagine.models` 默认等价于 `{ disclosure: "recommended", category: "all", includeSchemas: true }`。推荐图片模型优先 `nano-banana-2` 和 `oai-gpt-image-2`；图片一般只使用 2K，质量使用 `auto`。推荐视频生成模型只推荐 SeedDance 2.0；常规生成使用 `kittyvibe-seedance2.0pro`，快速预览或低成本需求使用 `kittyvibe-seedance2.0fast`。复杂动作、多主体、高运动量、怪兽或奇幻动作场景推荐 `kittyvibe-seedance2.0global`；快速/低成本 Global 预览推荐 `kittyvibe-seedance2.0fastglobal`。推荐音频模型分两类：音乐/配乐优先 `lyria-3-clip` / `lyria-3-pro`，音效/环境声/拟音/UI 声优先 `fal-ai/elevenlabs/sound-effects/v2`。这个音效模型最终应提交英文提示词；如果用户原文是中文，提交链路会自动翻成英文，但外部 Agent 仍应优先直接编写英文声音描述。Eleven 音效参数使用顶层 `durationSeconds`、`promptInfluence`、`loop`；不要暴露或传入 `output_format`，后端固定使用 MP3 44.1kHz / 128kbps。SeedDance 2.0 / Fast 只允许 720P，禁止 1080P。图片和视频超分/修复模型归在 `category: "upscale"`：`recraft-ai/recraft-crisp-upscale` 适合修复 Nano Banana Pro、GPT Image 2 等模型多轮编辑后的鳞片、噪点、颗粒和崩坏质感；`topaz/slp-2.5` 适合 AI 生成视频保真增强、去塑料感、提升人脸/材质/文字/logo 清晰度；`fal-ai/topaz/upscale/video` 是 fal 版 Starlight Precise 2.5，支持 `upscale_factor`、`target_fps`、`compression`、`noise`、`halo`、`grain`、`recover_detail`、`H264_output`；`topaz/ast-2` 适合创意细节重建和 prompt 引导增强，支持 `creativity`、`sharp`、`realism`、`prompt`。如果用户明确需要其它模型，再调用 `{ disclosure: "all", includeSchemas: false }` 查看其它模型名称；只有真正要使用某个非推荐模型时，才调用 `{ disclosure: "all", includeSchemas: true }` 获取完整 schema。
 
@@ -268,11 +292,21 @@ await window.__syncastAgent.run("syncast.assets.downloadUrls", {
 
 提示词优化会复用前端的 `imagine_prompt_optimize` Response API 和白名单过滤逻辑。输入中的资产引用应使用内部 token 形式 `@{asset:<assetId>}`；如果外部 Agent 只有人类可读名称，先用 `syncast.assets.list { query }` 找到唯一 assetId，再写入 prompt 或传入 `references`。优化结果会经过 sanitize：不允许模型新增未在原始 prompt / references / 首尾帧中的资产或文档 token。
 
-外部 `project-agent` 只负责读取模型、估算和可选的提示词优化，不暴露页面内部的草稿编译或提交实现。真正生成统一使用：
+生成前先明确需要哪一种契约：
+
+- 把 CLI 当作直接生成 API，只需要下载结果或投递项目 Assets，不需要频道消息：
 
 ```bash
 syncast imagine --project <project-id> --folder <name-or-path> --name <asset-name> --prompt <text>
 ```
+
+- 与已打开项目交互，要求像用户在 ImagineChannel 中操作并保留完整生成记录：
+
+```bash
+syncast project-agent run syncast.imagine.submitToChannel --input '{"channelId":"<imagine-channel-id>","modelType":"nano-banana-2","prompt":"生成角色设定图","targetAssetName":"角色A"}'
+```
+
+`syncast.imagine.submit` 也走前端频道持久化链路，但允许自动解析或创建 Agent Imagine 频道。草稿编译器等底层实现仍不对外暴露。
 
 `--folder` 接受名称或路径，缺失目录段由项目物化流程创建；已有真实 ID 时可用高级参数 `--folder-id`。引用本地文件用 `--reference-image`，引用项目内图片 ID 用 `--reference-asset`；不要自行获取或传递项目存储 key，也不要把页面内部的目录、时间轴来源或 provider 回调字段当成 CLI 参数。
 
@@ -344,10 +378,9 @@ syncast project-agent capabilities --action syncast.agent.delegate --disclosure 
 
 如果外部 Agent 不能直接在页面 main world 调用 `window.__syncastAgent`，使用 `syncast project-agent`：
 
-注意：页面内部仍有 Imagine 提交实现，但它不属于 `window.__syncastAgent`
-或 `project-agent` 的公共能力。CLI 生图统一使用
-`syncast imagine --project <id> --folder <path> --name <name> --prompt <text>`；
-缺失文件夹路径会在项目物化时自动创建。
+注意：Action Bridge 的 `syncast.imagine.submit` / `submitToChannel` 是公开的
+项目交互能力，会写入 Imagine 频道历史。直接 `syncast imagine --project ...`
+是生成 API + Assets 投递，不会创建频道消息；缺失文件夹路径会在项目物化时自动创建。
 
 | CLI | 对应浏览器 API |
 | --- | --- |
@@ -357,6 +390,7 @@ syncast project-agent capabilities --action syncast.agent.delegate --disclosure 
 | `syncast project-agent capabilities` | `window.__syncastAgent.capabilities()` |
 | `syncast project-agent run <action>` | `window.__syncastAgent.run(actionName, input, options)` |
 | `syncast project-agent asset-download-urls --asset-id <id>` | `window.__syncastAgent.run("syncast.assets.downloadUrls", input)` |
+| `syncast project-agent materialize-media-segments --asset-id <id> --segments <json-or-@file> [--idempotency-key <key>]` | `window.__syncastAgent.run("syncast.assets.materializeMediaSegments", input, { idempotencyKey? })` |
 | `syncast project-agent notifications --type <type>` | `window.__syncastAgent.notifications.list(...)` |
 | `syncast project-agent approval respond <approvalId> --approve/--deny` | `window.__syncastAgent.run("syncast.agent.approval.respond", input)` |
 | `syncast project-agent wait --ref <json>` | `window.__syncastAgent.wait(ref, options)` |
@@ -460,7 +494,8 @@ const result = await window.__syncastAgent.wait(savedRef, {
 
 - 想知道项目里有什么：用 `syncast.project.inspect`。
 - 想让 Syncast 自己生成方案、文档、视频思路：用 `syncast.agent.delegate`。
-- 想发起图片/视频/音频生成：用 `syncast imagine --project ... --folder ... --name ...`。
+- 想直接调用生成 API 并投递 Assets：用 `syncast imagine --project ... --folder ... --name ...`。
+- 想在项目 ImagineChannel 中留下生成记录：用 `syncast.imagine.submitToChannel`。
 - 想知道余额或生成预计消耗：用 `syncast.billing.summary` / `syncast.imagine.estimateCredits`。
 - 想查资源：用 `assets.list/get/browse`；想查文档：统一用 `docs.readForAgent`。
 - 想做精确 Loro 数据读写：用 `syncast.doc.graphql`。

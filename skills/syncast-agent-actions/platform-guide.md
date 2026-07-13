@@ -145,7 +145,7 @@ Agent 输入、文档输入和 Imagine 输入都支持 `@` 引用项目内容。
 发起生成时应像人类一样选择合适模型和参数：
 
 - 独立优化：调用 `syncast.imagine.optimizePrompt`。
-- 真实生成：使用 `syncast imagine --project ... --folder ... --name ... --prompt ...`，不要调用页面内部 submit action。
+- 真实生成：只需 API 结果或 Assets 投递时使用 `syncast imagine [--project ...]`；需要保留项目 ImagineChannel 历史时使用公开的 `syncast.imagine.submitToChannel`。
 
 图片/视频生成前必须确认：
 
@@ -294,7 +294,7 @@ AI 页包含两类核心能力：
 Agent 判断：
 
 - 如果任务需要创意判断、项目方案、视频工作流、文档产出，优先用 `syncast.agent.delegate` 委托内部 Agent。
-- 如果任务是明确生成图片/视频，使用外部 CLI `syncast imagine --project ... --folder ... --name ...`。
+- 如果任务是明确生成图片/视频，先判断是否需要 ImagineChannel 历史：需要则走 Action Bridge `submitToChannel`，否则走直接 CLI `syncast imagine [--project ...]`。
 - 生成前先调用 `syncast.billing.summary` 或 `syncast.imagine.estimateCredits` 告知余额和预计消耗。
 
 执行前确认：
@@ -335,8 +335,8 @@ Agent 判断：
 6. 规划少量稳定 Channel，不要每个任务都新建 Channel。
 7. 如果项目内容不足，向用户汇报缺口：缺规范、缺素材、缺画布结构、缺时间轴或缺任务结果。
 8. 如果需要业务创作，优先用 `syncast.agent.delegate` 委托内部 Agent。
-9. 如果需要排布待生成镜头，优先创建时间轴 AI Slot，让用户能查看和手动触发。
-10. 如果需要生成素材，先读相关规范和当前 Assets 目录，解析并校验引用、确认目标命名/目录、估算积分，再使用 `syncast imagine --project ... --folder ... --name ...`；需要时先单独调用 `syncast.imagine.optimizePrompt`。
+9. 如果需要排布待生成镜头，优先创建时间轴 AI Slot；协作模式让用户先检查，明确授权代操作时可用 `syncast.timeline.generationSlots.submit` 触发。
+10. 如果需要生成素材，先读相关规范和当前 Assets 目录，解析并校验引用、确认目标命名/目录、估算积分；需要频道记录时用 `syncast.imagine.submitToChannel`，只需 API/Assets 交付时用 `syncast imagine [--project ...]`；需要时先单独调用 `syncast.imagine.optimizePrompt`。
 11. 等待长任务完成：`window.__syncastAgent.wait(ref, { returnResult: true })`。
 12. 读取结果并复查：文档用 `syncast.docs.readForAgent`，资源用 `syncast.assets.browse/list/get`，频道用 `syncast.channel.messages.list/get`，时间轴用 `syncast.timeline.get`。
 13. 向用户汇报完成内容、产物位置、风险和下一步建议。

@@ -149,8 +149,9 @@ Default output is JSON (for agents).
 
 ### Deliver an image into a Syncast project
 
-Use the normal `imagine` command. This is the only public CLI generation entry
-point; do not route generation through `project-agent`.
+Use the normal `imagine` command when treating Syncast CLI as a direct
+generation API. `--project` adds durable Assets delivery, but it does not create
+an Imagine channel message or reproduce a user's ImagineChannel interaction.
 
 ```shell
 syncast imagine \
@@ -172,6 +173,36 @@ Treat `project_delivery.status: "queued"` as the successful handoff contract.
 If generation succeeds but the response does not confirm project delivery, the
 CLI still prints the generated URL and exits non-zero. Do not claim that an
 asset was archived when delivery is missing or failed.
+
+If the task instead requires project interaction with durable ImagineChannel
+history, use the opened-page Action Bridge:
+
+```shell
+syncast project-agent capabilities --action syncast.imagine.submitToChannel --disclosure full
+syncast project-agent run syncast.imagine.submitToChannel \
+  --input '{"channelId":"<imagine-channel-id>","modelType":"nano-banana-2","prompt":"Generate a cinematic character sheet.","targetAssetName":"角色A首帧"}'
+```
+
+This route reuses the frontend Imagine enqueue/persistence path and retains the
+prompt, parameters, task state, and results in the selected channel. Use
+`syncast.imagine.submit` only when automatically resolving or creating the
+Agent Imagine channel is desired.
+
+Document Imagine blocks are a third project-local contract. They must use the
+Action Bridge so the generated asset is written back to the originating block:
+
+```shell
+syncast project-agent capabilities --action syncast.docs.imagineBlocks.submitBatch --disclosure full
+syncast project-agent run syncast.docs.imagineBlocks.submitBatch \
+  --input '{"docId":"<doc-id>"}'
+```
+
+Use `syncast.docs.imagineBlocks.submit` with `{ docId, blockId }` for one card.
+`submitBatch` accepts optional `blockIds`; omitting them is equivalent to the
+document's “generate all pending” button. It starts each block submission in
+parallel, isolates per-block failures, and returns one task `ref` per successful
+block. Direct `syncast imagine`, even with `--project`, cannot replace this
+contract because it does not update document block state.
 
 ## Task management
 
@@ -197,17 +228,36 @@ syncast project-agent capabilities --action syncast.agent.delegate --disclosure 
 syncast project-agent run syncast.project.inspect --input '{"limit":20}'
 syncast project-agent run syncast.doc.graphql --input '{"query":"query { agents { agents { id name model allowLoadSkills skills { skillId skillType preload } childAgents { childAgentId alias displayName } } } }"}'
 syncast project-agent run syncast.agent.delegate --input '{"goal":"整理项目方案","executor":{"kind":"model","model":"gemini-3.5-flash"},"wait":false}'
+syncast project-agent materialize-media-segments --asset-id <audio-or-video-asset-id> --segments '[{"startTimeSeconds":0,"endTimeSeconds":15},{"startTimeSeconds":15,"endTimeSeconds":30}]'
 ```
 
 `project-agent` is for work that genuinely depends on the opened project's live
-Docs, Assets, timeline, or internal Agents. Its capabilities are a fail-closed
-set of high-level external actions. Page-internal Imagine submit/draft actions,
-timeline slot submit, raw Agent chat, typed wait/result, notification actions,
-and compatibility list/search/get aliases are hidden and rejected at both the
-browser and CLI execution boundaries. Use `syncast imagine --project ...` for
-generation and folder delivery, bridge `wait`/`notifications` methods for task
-completion, and the canonical `assets.list` / `docs.readForAgent` actions for
-queries.
+Docs, Assets, timeline, channels, or internal Agents. Its capabilities are a
+fail-closed set of high-level external actions. `syncast.imagine.submit` and
+`syncast.imagine.submitToChannel` are public project-interaction actions because
+they use the frontend queue and persist Imagine channel history.
+`syncast.timeline.generationSlots.submit` is likewise public because it is the
+Action equivalent of clicking a Slot's generate button.
+`syncast.docs.imagineBlocks.submit` and `submitBatch` are public equivalents of
+the document card and top-level batch buttons. Draft renderers,
+lower-level Agent chat input, typed wait/result, notification actions, and
+compatibility list/search/get aliases remain hidden. Use direct
+`syncast imagine [--project ...]` when no channel record is required; use the
+Action Bridge when the opened project's channel state is part of the requested
+outcome.
+
+Media slicing is a project Asset operation, not a generation flag. Use
+`syncast project-agent materialize-media-segments` (or generic `run
+syncast.assets.materializeMediaSegments`) to turn explicit audio/video ranges
+into normal project Assets. `--segments` accepts a non-empty JSON array or
+`@file`; `--folder-id` is optional and otherwise follows the source Asset
+placement. A full-source range reuses the source Asset without trimming, while
+identical output content reuses an existing Asset without another create or
+upload. Only distinct content creates a new Asset. The ordered result keeps
+successful `assetId` values even if another segment fails. Use those returned
+IDs as ordinary references in the next step. For a retryable external workflow,
+pass a stable `--idempotency-key`; reusing that key with different input is an
+error.
 
 For deterministic delegated work, pass the action input `executor` explicitly:
 
@@ -497,7 +547,7 @@ Direct `syncast imagine` supports image input without going through project Agen
 
 Use `--input <json>` or `--input-file <path>` to pass arbitrary image schema fields directly into `task_request.input`; these fields are merged with `model_type`, `prompt`, `aspect_ratio`, and `resolution`. CLI convenience flags `--width`, `--height`, and `--quality` write those schema fields directly, which is useful for custom dimensions such as `--resolution custom --width 2400 --height 3600`.
 
-Use `syncast imagine --help` for the normal image options. When an opened project bridge is available and current model-specific limits are needed, query the public `syncast.imagine.models` Action; do not assume a nonexistent `syncast schema` command. Use raw passthrough only for a known backend field. When the project ID, asset name, and destination path are already known, stay on the normal CLI and pass `--project`, `--name`, and `--folder`; naming, folder placement, or a known project Asset ID are not reasons to use `project-agent`. Use Syncast Agent Actions or the app UI only when the workflow genuinely depends on reading project Docs, discovering project state, deriving classification from content, timeline/canvas operations, or other UI-local context.
+Use `syncast imagine --help` for the normal image options. When an opened project bridge is available and current model-specific limits are needed, query the public `syncast.imagine.models` Action; do not assume a nonexistent `syncast schema` command. Use raw passthrough only for a known backend field. When the project ID, asset name, and destination path are already known, stay on the normal CLI and pass `--project`, `--name`, and `--folder` unless the requested outcome explicitly includes an ImagineChannel message/history. Naming, folder placement, or a known project Asset ID alone are not reasons to use `project-agent`; channel persistence, live Docs, project discovery, timeline/canvas operations, and other UI-local context are.
 
 Stable conceptual mapping for agents:
 
@@ -516,7 +566,7 @@ Do not classify "image reference" and "image editing" as separate model families
 
 ## Project-context workflows
 
-Use Syncast Agent Actions or the app UI when work depends on live Docs, asset discovery, timeline/canvas state, or internal Agent reasoning. Once prompt/model/reference IDs and delivery are known, return to the normal `syncast imagine` / `syncast video` command.
+Use Syncast Agent Actions or the app UI when work depends on live Docs, asset discovery, timeline/canvas state, internal Agent reasoning, or durable channel history. Once prompt/model/reference IDs and delivery are known, use the normal `syncast imagine` / `syncast video` command only if no channel record is required; otherwise keep the operation on the public Action Bridge submit path.
 
 For image cleanup after multi-round edits, use `recraft-ai/recraft-crisp-upscale`; it repairs noisy, scaly, grainy, or broken texture details without requiring a prompt.
 
