@@ -88,6 +88,8 @@ await window.__syncastAgent.wait(ref, { returnResult: true });
 
 ```ts
 await window.__syncastAgent.run("syncast.project.inspect", {
-  limit: 20
+  limit: 10
 });
 ```
+
+CLI 的 `wait --return-result` 默认只输出最终文本、任务终态和产物 ID。只有排查消息 parts、thinking 或工具轨迹时才加 `--full-result`，避免把大段内部过程带入上下文。

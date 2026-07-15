@@ -52,7 +52,7 @@ await window.__syncastAgent.run(actionName, input, options);
 - 内部 Agent 任务在提交时冻结本次 Agent、可用 Agent 目录与 Skill 快照；任务运行中修改项目 Agent/Skill 只影响下一次任务。
 - root task 权限是硬上限。声明 Agent/命名 Agent 可以继承或进一步收紧，但不能提升 root 权限；当前项目 UI 中的 Agent 默认继承 root 权限。
 - 声明 Agent 始终可按需加载全部内置 Skill；custom Skill 默认范围是已选 binding、依赖与 `alwaysApply` Skill。`allowLoadSkills=true` 才额外开放未选中的项目 custom Skill；新 Agent 建议显式写 `false`，旧 Agent 缺失字段按 `true`。binding 的 `preload` 只控制启动时是否注入完整说明，旧 binding 缺少 `preload` 时按 `true`。
-- 长任务不靠反复读进度，优先使用 bridge 的 `wait`、`subscribe`、`notifications.list`；`wait(ref, { returnResult: true })` 可一次返回通知和结果。
+- 长任务不靠反复读进度，优先使用 bridge 的 `wait`、`subscribe`、`notifications.list`；`wait(ref, { returnResult: true })` 可一次返回通知和结果。外部调用只回传最终文本、终态和产物 ID；CLI 需要调试完整 parts/tool 轨迹时显式加 `--full-result`。
 - 大列表、长正文、消息 parts、模型 schema、GraphQL 字段说明都采用渐进式披露：默认返回 `summary/index`，需要时显式传 `disclosure`、`mode`、`include*`、`limit/offset` 展开。
 - 生成图片或视频前必须校验 `@` 引用和 `references` 是否解析到真实资产，避免错误 ID 造成积分浪费。
 - 任务应有 Channel 规划：复用少量稳定 Channel，不要每个任务都新建 Channel。
@@ -65,7 +65,7 @@ await window.__syncastAgent.run(actionName, input, options);
 | --- | --- | --- | --- | --- |
 | `syncast.project.current` | read | 无 | `projectId`、activeChannelId、sync、permissions | 读取当前项目和权限状态，不暴露 Streams/路由实现 |
 | `syncast.billing.summary` | read | 无 | 当前个人/团队积分余额、扣费策略 | 告诉外部 Agent 当前剩余积分与团队扣费规则 |
-| `syncast.project.inspect` | read | `{ limit? }` | 必备概要：数量、当前上下文、最近/异常项、后续查询 action | 一次性巡检项目现场，不返回完整明细 |
+| `syncast.project.inspect` | read | `{ limit?: 1..10 }` | 必备概要：数量、当前上下文、最近/异常项、后续查询 action | 一次性巡检项目现场，不返回完整明细；先读 capability schema，不得超过 10 |
 
 ### GraphQL / Loro 通用入口
 
@@ -82,7 +82,7 @@ GraphQL 字段采用按模块渐进式披露。先调用 `syncast.doc.graphql.sc
 | 模块 | 参考文件 | 典型字段 |
 | --- | --- | --- |
 | Assets | [graphql-reference/assets.md](graphql-reference/assets.md) | `assetBrowse`、`assetsByIds`、`organizeAssets`、`moveAssetsToFolder` |
-| Docs | [graphql-reference/docs.md](graphql-reference/docs.md) | `docRead`、`createDocPage`、`moveDocPage`、`patchDoc` |
+| Docs | [graphql-reference/docs.md](graphql-reference/docs.md) | `docRead`、`ensureDocPages`、`moveDocPage`、`patchDoc` |
 | Channels | [graphql-reference/channels.md](graphql-reference/channels.md) | `channels`、`messages`、`createChannel`、`deleteMessage` |
 | Timelines | [graphql-reference/timelines.md](graphql-reference/timelines.md) | `clipsByTimeline`、`generationSlotUsagesByAsset`、`createGenerationSlot` |
 | Canvas | [graphql-reference/canvas.md](graphql-reference/canvas.md) | `pageWithElements`、`createElement`、`moveElement` |
@@ -146,6 +146,11 @@ await window.__syncastAgent.run("syncast.doc.graphql", {
 | --- | --- | --- | --- | --- |
 | `syncast.timelines.list` | read | `{ disclosure?, limit? }` | 时间轴概要列表、后续 action | 先查看项目有哪些时间轴 |
 | `syncast.timeline.get` | read | `{ timelineId, disclosure?, includeNonSlotClips? }` | 时间轴概要、AI Slot 列表；`full` 时含完整 input | 查看某条时间轴上的占位块 |
+| `syncast.timeline.context.load` | read | `{ timelineId, viewMode?: "audience" \| "editor", timeRange?: { startFrame?, endFrame? } \| { startTimeSeconds?, endTimeSeconds? } }` | 标准时间轴 manifest；audience 为最终合成分段，editor 为全部轨道放置 | 理解成片内容或检查剪辑结构，不渲染整条时间轴 |
+| `syncast.timeline.understanding.load` | read | `{ timelineId, viewMode?, timeRange?, profiles?: ("summary" \| "asr" \| "ocr" \| "shots")[], includeWords?, maxItems?, refresh? }` | 已映射到时间轴时间的摘要、ASR、OCR、镜头事件及 cache 状态 | 理解成片语义；只消费已有缓存，不隐式调用 provider |
+| `syncast.timeline.semantic.search` | edit | `{ timelineId, query, viewMode?, timeRange?, limit?, minScore?, confirmedExternalProcessing: true }` | 语义命中、素材 source range 与规范时间轴 placement/range | 检索台词、画面、人物外观、动作、风格；会把 query 文本发送给 embedding provider，不渲染成片 |
+| `syncast.assets.visualIndex.prepare` | edit | `{ assetId, maxFrames?, allowLargeSource?, refresh?, confirmedExternalProcessing: true }` | 可恢复 visual 后台任务 | 发送有界关键帧做非身份化视觉语义，并刷新 embedding 索引 |
+| `syncast.assets.cacheLifecycle.inspect` | read | `{ includePreview?, limit? }` | 自动 GC 策略、最近运行状态、可选 dry-run 候选统计 | 检查旧缓存与孤儿向量；不会删除数据 |
 | `syncast.timeline.create` | edit | `{ name, width?, height?, frameRate? }` | 新时间轴 | 创建可排布 AI Slot 的时间轴 |
 | `syncast.timeline.generationSlots.create` | edit | `{ timelineId, slot }` | 新 draft slot | 添加单个待生成块，不立即扣费生成 |
 | `syncast.timeline.generationSlots.createBatch` | edit | `{ timelineId?, timelineName?, width?, height?, frameRate?, slots[] }` | 时间轴和一组 draft slots | 一次性排一组镜头/角色/素材占位块 |
@@ -255,11 +260,11 @@ await window.__syncastAgent.run("syncast.assets.materializeMediaSegments", {
 
 `syncast.docs.readForAgent` 默认只返回索引，不返回正文，并且语义与 monodoc GraphQL 的 `docRead` 保持一致。典型流程是：先 `{ mode: "index" }` 看文档地图，再 `{ mode: "outline", docId }` 取真实 `sectionId` / `startBlockIndex` / `endBlockIndex`，最后 `{ mode: "content", docId, target: "section", sectionId, maxChars, loadedContextKeys }` 读取必要正文。继续读取使用返回的 `nextCursor`，去重使用 `contextKey`。全文只在用户明确需要时使用 `{ mode: "content", target: "full" }`。
 
-文档写入如果是简单结构化 mutation，可用 `syncast.doc.graphql` 的 `createDocPage`、`updateDocPage`、`moveDocPage`、`moveDocPageBefore`、`moveDocPageAfter`、`deleteDocPage`、`patchDoc`、`setDocBlocks`。如果是业务性内容创作，优先用 `syncast.agent.delegate` 让内部 Agent 完成。
+文档写入如果是简单结构化 mutation，可用 `syncast.doc.graphql` 的 `ensureDocPages`、`updateDocPage`、`moveDocPage`、`moveDocPageBefore`、`moveDocPageAfter`、`deleteDocPage`、`patchDoc`、`setDocBlocks`。新建内容型页面必须通过 `ensureDocPages` 同时提交稳定 `logicalKey` 和有效 `initialMarkdown`；只有纯目录可设 `containerOnly=true`。完整内部 schema 中的 `createDocPage` 只供 App/历史调用方创建空白页，外部 Agent 合同会拒绝它。如果是业务性内容创作，优先用 `syncast.agent.delegate` 让内部 Agent 返回草案，再由外部 Agent 把确认内容一次写入。
 
 文档 Imagine 块生成必须使用上述高层 action，不能通过 `syncast.doc.graphql` 手动把块改成 `generating`，也不能用普通 `syncast.imagine.submitToChannel` 代替：只有文档 action 会保留 `docId/blockId` 目标并在完成后把资产替换回原块。`submitBatch` 会同时启动所有选中项的入队；一个块失败只进入 `failures`，不会阻塞其它块。每个成功项都有独立 `submission.ref`，可分别用 bridge `wait` 等待。
 
-项目骨架或模板式初始化不要直接写 Loro、IndexedDB 或后端数据库。复用已发布的模板包时，走 App/Library/CLI 的项目模板包导入路线；如果用户明确要求外部 Agent 在当前项目内创建结构，使用 GraphQL 的幂等 mutation：Docs 用 `createDocPage(..., idempotencyKey)` 建树，再用 `patchDoc` 或 `setDocBlocks` 写内容；资源目录用 `ensureFolderPath(input: { path: "/Shots/Act 1" })` 创建或复用文件夹，需要搬运资产时再用 `moveAssetsToFolder` 的 `folderPath`。
+项目骨架或模板式初始化不要直接写 Loro、IndexedDB 或后端数据库。复用已发布的模板包时，走 App/Library/CLI 的项目模板包导入路线；如果用户明确要求外部 Agent 在当前项目内创建结构，Docs 用一次 `ensureDocPages(inputs)` 建树并写入全部初始正文，同批子项通过 `parentLogicalKey` 关联，重放继续使用相同 `logicalKey`；资源目录用 `ensureFolderPath(input: { path: "/Shots/Act 1" })` 创建或复用文件夹，需要搬运资产时再用 `moveAssetsToFolder` 的 `folderPath`。
 
 ### 任务和通知
 
@@ -319,7 +324,7 @@ syncast project-agent run syncast.imagine.submitToChannel --input '{"channelId":
 
 | Action | 权限 | 输入 | 输出 | 用途 |
 | --- | --- | --- | --- | --- |
-| `syncast.agent.delegate` | edit | `{ goal?, prompt?, executor?, channelId?, channelTitle?, includeHistory?, wait?, timeoutMs? }` | `{ localTaskId, messageId, ref }`；等待时包含 notification/result | 外部 Agent 最推荐使用的业务委托入口 |
+| `syncast.agent.delegate` | edit | `{ goal?, prompt?, executor?, channelId?, channelTitle?, includeHistory?, wait?, timeoutMs? }` | `{ localTaskId, messageId, ref }`；等待时包含 notification/result | 创意构思、业务判断或未知结构的委托入口；不用于机械搬运完整正文 |
 | `syncast.agent.approval.respond` | edit | `{ approvalId, approved, feedback? }` | 审批结果摘要 | 响应该外部 Agent 托管的内部 Agent action approval |
 
 `syncast.agent.delegate` 允许只传 `goal`，它会自动创建/复用专用的自动化 chat channel，不会默认使用人类当前正在查看的频道，也不会默认携带整段频道历史。只有当外部 Agent 明确需要延续某个频道上下文时，才传 `channelId/channelTitle` 和 `includeHistory: true`。
@@ -350,7 +355,7 @@ syncast project-agent run syncast.imagine.submitToChannel --input '{"channelId":
 syncast project-agent capabilities --action syncast.agent.delegate --disclosure full
 ```
 
-当 `syncast.agent.delegate` 使用 `wait: true`，返回的 `data.result.text` 是内部 Agent 最终可见回复，`data.result.textPreview` 是短摘要。异步提交后需要结果时，使用 `window.__syncastAgent.wait(ref, { returnResult: true })` 或 CLI 的 `syncast project-agent wait --ref <json> --return-result`。
+当 `syncast.agent.delegate` 使用 `wait: true`，返回的 `data.result.text` 是内部 Agent 最终可见回复，`data.result.textPreview` 是短摘要。异步提交后需要结果时，使用 `window.__syncastAgent.wait(ref, { returnResult: true })` 或 CLI 的 `syncast project-agent wait --ref <json> --return-result`。CLI 默认精简掉 thinking、tool parts、原始 message/input 等轨迹，只保留最终文本、任务状态和产物 ID；调试时加 `--full-result`。
 
 当内部 Agent 返回 `agent_action.approval_requested` 通知时，通知里会包含 `approvalId` / `respondAction` / `nextActions`。同一个外部 Agent 身份可以调用 `syncast.agent.approval.respond` 批准或拒绝；非 owner 会得到 `approval_actor_mismatch`。
 
@@ -364,7 +369,7 @@ syncast project-agent capabilities --action syncast.agent.delegate --disclosure 
 | `window.__syncastAgent.currentAgent()` | 查看当前 session 中的外部 Agent 身份 |
 | `window.__syncastAgent.clearAgent()` | 清除当前外部 Agent 身份，通常只用于调试 |
 | `window.__syncastAgent.capabilities()` | 获取所有 action 名称、说明、权限 |
-| `window.__syncastAgent.wait(ref, { timeoutMs?, returnResult? })` | 等待任务通知；`returnResult: true` 时同时补拉结果，Agent 文本位于 `data.result.text` |
+| `window.__syncastAgent.wait(ref, { timeoutMs?, returnResult? })` | 等待任务通知；`returnResult: true` 时同时补拉结果，Agent 文本位于 `data.result.text`。浏览器自动化返回给调用方时应只选取文本、终态和产物 ID，不直接回传完整对象 |
 | `window.__syncastAgent.subscribe(filter, callback)` | 订阅完成/失败通知，返回 unsubscribe |
 | `window.__syncastAgent.notifications.list({ filter?, limit? })` | 拉取当前项目通知；审批通知只返回当前外部 Agent 自己托管的请求 |
 | `window.__syncastAgent.history.list({ limit? })` | 拉取当前项目、当前外部 Agent 自己的公开 Action 调用历史 |
@@ -397,7 +402,7 @@ syncast project-agent capabilities --action syncast.agent.delegate --disclosure 
 
 CLI Bridge 是 transport，不是新的业务 API。它不会替代本文件里的 action 语义，也不会暴露任意 `evaluate`。
 
-CLI 默认输出稳定 JSON，便于外部 Agent 解析。内部 Agent 的返回文本读取 `data.result.text`；人工查看可加全局参数 `--format human` 获得摘要输出。
+CLI 默认输出稳定 JSON，便于外部 Agent 解析。`wait --return-result` 默认是精简结果，内部 Agent 的最终文本读取 `data.result.text`；只有诊断时加 `--full-result` 展开完整 message/parts/tool 轨迹。人工查看也可加全局参数 `--format human`。
 
 ## 开发者调试器
 
@@ -415,7 +420,7 @@ CLI 默认输出稳定 JSON，便于外部 Agent 解析。内部 Agent 的返回
 
 ```ts
 const overview = await window.__syncastAgent.run("syncast.project.inspect", {
-  limit: 20
+  limit: 10
 });
 ```
 
@@ -425,7 +430,7 @@ const overview = await window.__syncastAgent.run("syncast.project.inspect", {
 
 ```ts
 const started = await window.__syncastAgent.run("syncast.agent.delegate", {
-  goal: "请基于当前项目资源生成一个视频项目方案，并写入项目文档。",
+  goal: "请基于当前项目资源返回一个视频项目方案草案，只负责创作判断，不要执行项目写入。",
   executor: { kind: "model", model: "gemini-3.5-flash" },
   wait: false
 });
@@ -489,7 +494,7 @@ const result = await window.__syncastAgent.wait(savedRef, {
 ## 什么时候用哪条路径
 
 - 想知道项目里有什么：用 `syncast.project.inspect`。
-- 想让 Syncast 自己生成方案、文档、视频思路：用 `syncast.agent.delegate`。
+- 需要从零构思方案、剧本、视频思路或未知结构：用 `syncast.agent.delegate` 获取草案；已有完整正文或精确修改时直接用 GraphQL。
 - 用户没说明项目内还是项目外：先询问，不得生成。
 - 想在项目中生成且未指定频道：用 `syncast.imagine.submit`。
 - 想在指定项目 ImagineChannel 中生成：用 `syncast.imagine.submitToChannel`。

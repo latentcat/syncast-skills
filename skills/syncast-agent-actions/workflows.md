@@ -17,7 +17,7 @@
 
 每次开始都先判断项目状态：
 
-- 空项目：缺文档、资源、时间轴或明确规范。先和用户讨论项目类型，再让内部 Agent 创建项目规范。
+- 空项目：缺文档、资源、时间轴或明确规范。用户尚未给出结构时先讨论项目类型并让内部 Agent 返回规范草案；用户已给出完整正文时直接写入。
 - 进行中项目：已有文档、资源、画布、时间轴或频道消息。先读现有内容，避免重复创建和重复生成。
 
 随后判断模式：
@@ -42,6 +42,22 @@
 
 同一主题的连续任务复用同一个 Channel；只有没有合适 Channel 时才创建。
 
+## 写入前先判断产物受众
+
+创建或修改 custom Skill、Agent instructions、项目规范、提示词模板和文档前，必须先选择一种受众：
+
+1. 外部 Agent 操作/集成指南：允许出现 CLI、Bridge、公开 Action、GraphQL 与接入方式；除非用户明确要求集成文档，否则不要写入项目内部。
+2. 项目内部 Skill/Agent/规范/模板：只写业务规则、能力语义、模型和创作参数；不得出现 CLI、Bridge、standalone API、外部 Action 名、GraphQL mutation、传输或接入方式。
+3. 用户阅读文档：使用产品和创作语言，不暴露接入实现；明确的开发/集成文档除外。
+
+检查范围包括名称/标题、description、正文/instructions、模板字段和元数据。项目内部 Skill 可以写“使用项目内 Imagine 能力，模型为 `oai-gpt-image-2`，比例为 16:9，分辨率为 2K”，不能写“调用 `syncast.imagine.submit`，不能调用 standalone CLI”。
+
+## 选择委托还是直接 GraphQL
+
+- 创意构思、剧本设计、未知结构、需要项目内专业 Skill 判断：委托内部 Agent，并明确要求只返回草案或判断，不执行机械写入。
+- 用户已提供完整正文、精确字段更新、确定文本替换、删除指定段落：直接使用项目 GraphQL；不要让内部 Agent 转述或改写。删除在执行方式上仍走 GraphQL，但按删除授权规则确认。
+- 用户明确要求的同范围、非计费创建或编辑已经授权，不再确认一次。只有扩大范围、额外积分消耗、删除内容或目标不明确时询问；会造成未请求内容丢失的整段覆盖按删除处理，用户明确要求的精确替换不重复确认。
+
 ## 检查项目
 
 ```ts
@@ -52,7 +68,7 @@ await window.__syncastAgent.initialize({
 });
 
 const overview = await window.__syncastAgent.run("syncast.project.inspect", {
-  limit: 20
+  limit: 10
 });
 ```
 
@@ -60,7 +76,7 @@ const overview = await window.__syncastAgent.run("syncast.project.inspect", {
 
 检查后先判断缺口：
 
-- 缺项目规范：优先委托内部 Agent 或创建文档。
+- 缺项目规范：结构未知时委托内部 Agent 返回草案；用户已有完整内容时直接创建文档。
 - 缺参考素材：优先检查资源文件夹或询问用户是否上传。
 - 缺视觉结构：可查看画布并规划分镜/参考关系。
 - 缺剪辑结构：可查看时间轴并判断是否需要先生成素材。
@@ -68,7 +84,7 @@ const overview = await window.__syncastAgent.run("syncast.project.inspect", {
 
 ## 使用内部 Agent
 
-外部 Agent 无法直接访问 Syncast 内部 Skill。剧本设计、视频创作、提示词生成、模型参数理解、工具调用建议等，应该高频询问或委托内部 Agent。
+外部 Agent 无法直接访问 Syncast 内部 Skill。剧本设计、视频创作、未知提示词结构、模型参数理解、工具调用建议等需要创作判断的任务，可以询问或委托内部 Agent。已有完整内容的创建和精确修改不属于委托范围。
 
 项目里的每个自定义 Agent 都是独立声明，可直接运行，也可被其它 Agent 绑定为命名选项。调用前先选择顶层执行器：
 
@@ -84,10 +100,10 @@ const overview = await window.__syncastAgent.run("syncast.project.inspect", {
 ```ts
 const started = await window.__syncastAgent.run("syncast.agent.delegate", {
   goal: [
-    "请基于当前项目状态，帮我创建适合短视频项目的项目规范。",
+    "请基于当前项目状态，返回适合短视频项目的项目规范草案。",
     "请把规范拆成：整体风格、角色、场景、分镜计划、常用提示词。",
     "如果项目方向是电影感 3D 动画或三维渲染二维感，请在风格规范中明确参考 `$cinematic-3d-animation`，并按该 Skill 写整体视觉原则、固定提示词骨架、正向词、反向控制和验收标准。",
-    "请尽量写入项目文档，方便后续通过 @ 文档或章节引用。"
+    "只负责创作判断并返回正文，不要创建或修改项目文档。"
   ].join("\n"),
   executor: { kind: "model", model: "gemini-3.5-flash" },
   wait: false
@@ -100,7 +116,7 @@ const started = await window.__syncastAgent.run("syncast.agent.delegate", {
 
 ```ts
 const started = await window.__syncastAgent.run("syncast.agent.delegate", {
-  goal: "请基于当前项目资源生成一个视频项目方案，并写入项目文档。",
+  goal: "请基于当前项目资源返回一个视频项目方案草案，只负责创作判断，不要执行项目写入。",
   executor: { kind: "agent", agentId: "<project-agent-id>" },
   wait: false
 });
@@ -117,9 +133,9 @@ const done = await window.__syncastAgent.wait(started.data.ref, {
 });
 ```
 
-内部 Agent 的最终可见文本在 `done.data.result.text`，短摘要在 `done.data.result.textPreview`。通过 CLI 调用时，`syncast project-agent wait --return-result` 返回同样结构；人工查看可加 `--format human`。
+内部 Agent 的最终可见文本在 `done.data.result.text`，短摘要在 `done.data.result.textPreview`。浏览器自动化应只把最终文本、任务终态和产物 ID 返回外部上下文，不直接返回包含 parts/tool 轨迹的完整 `done`。CLI 的 `syncast project-agent wait --return-result` 默认输出精简 JSON；仅调试时使用 `--full-result`。
 
-读取生成的文档：
+如果委托只返回了草案，外部 Agent 在确认目标文档后用项目 GraphQL 写入。随后读取并验收文档：
 
 ```ts
 await window.__syncastAgent.run("syncast.docs.readForAgent", {
@@ -128,6 +144,29 @@ await window.__syncastAgent.run("syncast.docs.readForAgent", {
 ```
 
 `syncast.docs.readForAgent` 返回的是 canonical `docRead` 结构；后续读取章节正文时使用 `outline` 中的真实 `sectionId`，继续分页使用 `nextCursor`，重复上下文去重使用 `content.contextKey` / `loadedContextKeys`。
+
+## 创建或更新 custom Skill
+
+custom Skill 写入使用固定流程，不能只看 mutation 是否成功：
+
+1. **查重**：先查询 `customSkills` 的 `id/name/description/alwaysApply/depends`；按规范化后的完整名称查同名 Skill。唯一同名项应更新而不是重复创建；多个候选或名称意图不明确时先确认。
+2. **确认元数据**：明确 `alwaysApply`、每个 `depends { skillId skillType }` 是否真实存在，以及是否需要绑定某个 Agent。`depends` 不含 `preload`；Agent binding 才有 `preload`。
+3. **内容隔离**：在写入前扫描 `name`、`description`、`instructions`、依赖与相关 Agent 元数据。项目内部 Skill 不得包含 CLI、Bridge、standalone API、外部 Action/GraphQL 名或接入方式，除非用户明确要求集成 Skill。
+4. **创建/更新**：通过 `syncast.doc.graphql` 执行 mutation。用户给出的完整 instructions 原样写入，不经内部 Agent 改写。
+5. **完整回读**：按返回的真实 `id` 查询 `customSkill(id)`，必须回读 `id name description instructions iconName alwaysApply depends { skillId skillType } createdAt updatedAt`。
+6. **引用验真**：提取 `instructions` 和 `description` 中的 `@{doc:<docId>|...}` / `@{doc-section:<docId>:<sectionId>|...}`；逐个用文档查询校验真实 `docId`，章节引用还要从 outline 校验真实 `sectionId`。不得把标题、slug 或猜测值当 ID。
+7. **绑定验收**：需要绑定 Agent 时，更新前先读取并保留 `allowLoadSkills`、全部 `skills { skillId skillType preload }` 和其它声明字段；更新后回读 Agent，确认新 binding、`preload` 和原有绑定都正确。`alwaysApply=true` 不等于必须额外绑定。
+
+详细 query/mutation 见 [graphql-reference/skills.md](graphql-reference/skills.md)。最终验收必须同时覆盖正文、描述和元数据；任何一处仍残留外部接入内容都不算完成。
+
+## 创建或精确修改文档/模板
+
+- 新建文档使用 `ensureDocPages`，以稳定、项目级唯一的 `logicalKey` 标识业务目标，并在同一次 mutation 传入有效 `initialMarkdown`。多篇父子文档放入同一批次，通过 `parentLogicalKey` 建树。
+- 查现有标题/路径只用于选择是否显式采用已有真实 `existingDocId`；不得按标题静默复用。默认禁止同父级同名，确需同名新页时才显式设置 `allowDuplicateTitle=true`。
+- `success=true` 且 `ready=true` 已完成写入后置条件检查，不做机械 `docRead`。只有语义审校、引用验真或图标/封面等额外元数据验收时再回读。修改已有有效正文使用真实 `docId` 调 `patchDoc`。
+- 用户阅读文档检查 `title/description/body`；项目规范还要检查 `docKind/specInjectionMode`。所有 `@` 文档引用使用真实 ID。
+- 提示词模板先查同名项，写入后回读完整 `name/description/targetTypes/inputTemplate/promptTemplate/variables`，对所有文本字段做受众隔离检查。
+- 用户给出完整正文、精确字段更新或确定删除目标时直接 GraphQL，不把机械搬运委托给内部 Agent。删除仍按授权规则确认；精确替换不重复确认。
 
 ## 校验 @ 引用
 

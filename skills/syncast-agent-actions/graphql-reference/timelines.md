@@ -12,6 +12,7 @@ Queries:
 - `clip(timelineId: String!, clipId: String!)`
 - `arollList(timelineId: String!)`
 - `connections(timelineId: String!)`
+- `timelineTrackLayout(timelineId: String!)`
 - `generationSlotUsagesByAsset(assetId: String!)`
 
 Mutations:
@@ -66,6 +67,21 @@ query TimelineClips($timelineId: String!) {
   }
 }
 ```
+
+Read the ordered track memberships used by the canonical timeline context:
+
+```graphql
+query TimelineTrackLayout($timelineId: String!) {
+  timelineTrackLayout(timelineId: $timelineId) {
+    arollClipIds
+    upperBrollConnectionIds
+    lowerBrollConnectionIds
+    audioBrollConnectionIds
+  }
+}
+```
+
+For content understanding, prefer `syncast.timeline.context.load`; it applies the same visual-priority, subtitle, audio, source-time, and range rules as timeline playback.
 
 Find where an asset is used as slot output:
 

@@ -34,6 +34,29 @@ This routing decision is about whether the user is working in a project, not
 whether they explicitly requested ImagineChannel history. Project work must
 leave its prompts, parameters, task state, results, and assets in the project.
 
+## Keep external operations out of project content
+
+This skill is an external integration guide, so it may describe CLI commands,
+the Bridge, public Actions, and GraphQL. Before writing any project Skill,
+Agent instructions, project spec, prompt template, or user document, classify
+the target audience:
+
+- External Agent integration guides may contain these implementation details.
+- Project-internal Skills/specs/templates contain only business rules,
+  project-capability semantics, model ids, and creative parameters. Never copy
+  CLI, Bridge, standalone API, `syncast.*` Action names, GraphQL mutations,
+  transport, or access instructions into them unless the user explicitly asks
+  for integration documentation.
+- User-facing project documents use product and creative language and do not
+  expose access implementation, except for an explicitly requested developer
+  or integration document.
+
+Validate every text-bearing field, including name/title, description,
+instructions/body, template fields, and metadata. For example, an internal
+Skill should say “Use the project's Imagine capability with
+`oai-gpt-image-2`, 16:9, 2K,” not “call `syncast.imagine.submit` and do not use
+the standalone CLI.”
+
 ## Prerequisites
 
 - Node.js 18+ (npm/npx)
@@ -206,7 +229,7 @@ project before generating:
 ```shell
 syncast project-agent serve
 syncast project-agent pages
-syncast project-agent run syncast.project.inspect --input '{"limit":20}'
+syncast project-agent run syncast.project.inspect --input '{"limit":10}'
 syncast project-agent capabilities --action syncast.imagine.submit --disclosure full
 ```
 
@@ -274,11 +297,28 @@ syncast project-agent serve
 syncast project-agent pages
 syncast project-agent capabilities
 syncast project-agent capabilities --action syncast.agent.delegate --disclosure full
-syncast project-agent run syncast.project.inspect --input '{"limit":20}'
+syncast project-agent run syncast.project.inspect --input '{"limit":10}'
 syncast project-agent run syncast.doc.graphql --input '{"query":"query { agents { agents { id name model allowLoadSkills skills { skillId skillType preload } childAgents { childAgentId alias displayName } } } }"}'
 syncast project-agent run syncast.agent.delegate --input '{"goal":"整理项目方案","executor":{"kind":"model","model":"gemini-3.5-flash"},"wait":false}'
 syncast project-agent materialize-media-segments --asset-id <audio-or-video-asset-id> --segments '[{"startTimeSeconds":0,"endTimeSeconds":15},{"startTimeSeconds":15,"endTimeSeconds":30}]'
 ```
+
+Project document creation stays on the generic bridge; there is no separate
+`syncast docs create` command. Create the complete tree and initial content in
+one `ensureDocPages` mutation:
+
+```shell
+syncast project-agent run syncast.doc.graphql --input '{"query":"mutation EnsureDocs($inputs: [EnsureDocPageInput!]!) { ensureDocPages(inputs: $inputs) { success logicalKey docId created adopted contentWritten ready hasMeaningfulContent } }","variables":{"inputs":[{"logicalKey":"short-drama:episodes","title":"分集剧本","containerOnly":true},{"logicalKey":"short-drama:episode:01","title":"第一集","parentLogicalKey":"short-drama:episodes","initialMarkdown":"# 第一集\n\n## 场景一\n\n正文"}]}}'
+```
+
+Use a stable project-business `logicalKey` across retries and replay. For an
+existing page, query its real id and pass `existingDocId`; never infer identity
+from a possibly duplicated title. A content page requires meaningful
+`initialMarkdown`, while only a directory may set `containerOnly: true`.
+`success=true` plus `ready=true` is the write postcondition, so do not spend a
+second tool call on a mechanical read. Use `patchDoc` for an existing body.
+The full internal schema retains `createDocPage` for App and historical blank
+page callers, but the external `syncast.doc.graphql` contract rejects it.
 
 `project-agent` is mandatory whenever the user is working in a Syncast project,
 including a new or otherwise empty project. Its capabilities are a
@@ -317,6 +357,27 @@ Bindings reference the same independent Agent declaration; they do not create a 
 Always query and preserve `allowLoadSkills` together with `skills { skillId skillType preload }` when reading then updating an Agent. Every built-in Skill remains available on demand. Custom bindings identify the explicitly selected project Skills, while `preload` only controls startup instruction injection: `false` keeps a selected Skill available on demand and `true` injects its full instructions at startup. `allowLoadSkills: false` excludes only unselected project custom Skills; `true` expands discovery to the whole project custom-Skill catalog. Missing legacy `allowLoadSkills` and binding `preload` values are both interpreted as `true`, so new Agent declarations should write both booleans explicitly. Skill `depends` entries never use preload.
 
 A delegated task uses the Agent/Skill snapshot captured at submission. Editing the project Agent or Skill changes the next task, not one already running. Child permissions can inherit or narrow the root task permission profile, but cannot exceed it.
+
+Delegate only creative judgment, such as ideation, script design, or an
+unknown structure. If the user supplied complete text, requested an exact
+field edit, replacement, or specified removal, use project GraphQL directly;
+do not send the text through an internal Agent for rewriting or mechanical
+copying. A same-scope, non-billable project write explicitly requested by the
+user is already authorized. Ask again only for scope expansion, additional
+credit spend, deletion, or an ambiguous target. Treat a broad overwrite that
+would discard unrequested content as deletion, but do not reconfirm an exact
+replacement the user already requested.
+
+Before creating a custom Skill, query same-name Skills. Confirm `alwaysApply`,
+typed `depends`, and whether an Agent binding is needed. After create/update,
+read the complete Skill by its real id, validate all document references, and
+inspect instructions, description, and metadata for external integration
+leakage. If binding it to an Agent, preserve and re-read `allowLoadSkills` and
+every `skills.preload` value.
+
+`syncast project-agent wait --return-result` emits compact JSON by default:
+final text, terminal task status, and artifact ids. Add `--full-result` only
+when debugging message parts, thinking, or tool traces.
 
 If an internal Syncast Agent pauses on an action approval, list pending approval
 notifications:
