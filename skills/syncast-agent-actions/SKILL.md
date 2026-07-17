@@ -202,13 +202,14 @@ await window.__syncastAgent.run("syncast.docs.readForAgent", {
 - 用户已提供完整正文、要求精确字段更新、替换确定文本或删除指定段落时，直接使用 `syncast.doc.graphql`，不要让内部 Agent 转述、改写或代为搬运。删除仍遵守删除授权规则。
 - 创建或更新 custom Skill 时，必须先查同名项，确认 `alwaysApply`、`depends` 和是否绑定 Agent；写入后按 ID 回读完整 `name/description/instructions/iconName/alwaysApply/depends`，校验所有 `@{doc:...}` / `@{doc-section:...}` 使用真实 `docId`，并扫描正文、描述和元数据是否混入外部接入实现。需要绑定 Agent 时同时回读 Agent，并保留 `allowLoadSkills` 与全部 `skills.preload`。
 - 用户明确要求的同范围、非计费项目创建或编辑视为已授权，不重复询问。只有扩大范围、启动额外计费/积分任务、删除内容或目标不明确时再确认；会造成未请求内容丢失的整段覆盖按删除处理，用户明确要求的精确替换不重复确认。
-- 要像用户在已有 AgentChannel 中继续对话，调用 `syncast.agent.delegate` 并传真实 `channelId`；需要读取该频道上下文时同时传 `includeHistory: true`。它与内部 `syncast.agent.chat.submit` 走同一前端消息/任务链路，但只公开稳定、安全的输入面。
+- 要给正在运行的主 Agent 追加指令，使用 `syncast.agent.followup { taskId, prompt }`，它复用原任务，不创建新任务。只有已结束或根本没有运行中任务、且确实要新开一次对话时，才用 `syncast.agent.delegate`；`channelId + includeHistory` 只是让新任务读取旧频道上下文。
+- 默认通过主 Agent 编排。只有用户明确点名子 Agent、需要恢复/中断卡住的子任务，或主 Agent等待时需要定点干预，才使用 `syncast.agent.thread.get/message/continue/interrupt/background`。`interrupt` 默认只停止当前 Turn；永久关闭才传 `scope="thread"`。转后台必须传 `confirmedContinuedBilling: true`。
 - 项目 Agent 是一份独立声明，可直接作为 `executor: { kind: "agent", agentId }` 使用，也可绑定为另一 Agent 的命名选项。直接模型 `executor: { kind: "model", model }` 能看到项目全部 Agent；声明 Agent 只看到自己的绑定项。两者都能从头创建不继承父指令的临时子 Agent，且所有子执行均为叶节点。
 - 外部 Agent 在选择声明 Agent 前，先通过 Agents GraphQL 查询真实 `id` 与 `childAgents`。CLI 的 `--agent-id` 是外部操作者身份，只有 action input 中的 `executor.agentId` 才选择项目内 Agent。
 - 查询或更新 Agent 时必须请求并保留 `allowLoadSkills` 与 `skills { skillId skillType preload }`。所有内置 Skill 始终可按需加载；custom binding 决定关闭扩展发现时仍可用的项目 Skill。`preload` 只决定是否在启动时注入完整说明。旧 binding 缺少 `preload` 时按 `true`，新 binding 应显式写 `false` 或 `true`。
 - `allowLoadSkills` 是历史兼容字段：`false` 只禁止发现未选中的项目 custom Skill，仍保留已选 custom Skill、依赖、`alwaysApply` Skill 和全部内置 Skill；`true` 扩展到全部项目 custom Skill。新 Agent 建议显式写 `false`，旧 Agent 缺失字段时按 `true`。直接模型仍可发现项目全部 Skill。Custom Skill 的 `depends` 不包含 `preload`。
 - 内部 Agent 任务使用提交时的 Agent/Skill 快照；运行中修改 Agent、Skill 或 preload 只影响下一次任务。不要要求当前任务“立即读取”刚刚修改的声明。
-- root task 权限是硬上限，命名/临时子 Agent 不能自行升级。当前 UI 项目 Agent 默认继承 root 权限；API 提供的 Agent profile 也只能进一步收紧。
+- root task 的工具权限 profile 是执行能力硬上限，命名/临时子 Agent 不能自行升级。任务控制权不按发起人划分：项目内具备操作权限的用户都能继续、中断或取消已有项目任务；冻结发起人仅用于计费、归因和公平调度。
 - 外部 Agent 必须先调用 `window.__syncastAgent.initialize({ name, description?, emojiAvatar?, agentId? })` 初始化身份；首次加入会在项目成员中创建归属于当前登录用户的 Agent 身份，后续携带同一个 `agentId` 会认领并延续该身份。后续 action history 和由它发起的任务会记录这个外部操作者。内部 Agent 指的是 Syncast 内部 AI 对话执行者，不等同于外部 Agent。
 - `syncast.agent.delegate` 默认使用专用自动化频道，不使用当前人工频道，也不携带历史。只有明确要延续某个频道上下文时，才传 `channelId/channelTitle` 和 `includeHistory: true`。
 - `timeoutMs` 只限制等待时长，超时不会取消任务；保存 `ref` 后用 bridge 的 `notifications.list` 或 `wait(ref, { returnResult: true })` 补拉。

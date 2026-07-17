@@ -95,7 +95,7 @@ const overview = await window.__syncastAgent.run("syncast.project.inspect", {
 
 查询目录时同时读取 `allowLoadSkills` 和 `skills { skillId skillType preload }`。全部内置 Skill 始终可按需加载；`allowLoadSkills=false` 只排除未选中的项目 custom Skill，不影响已选 binding、依赖与 `alwaysApply` Skill。`preload=false` 表示 Skill 仍可用，只是不在启动时注入完整说明。新 Agent 建议显式写 `allowLoadSkills=false`；旧 Agent 缺失时按 `true`，旧 binding 缺少 `preload` 时也按 `true`。read-modify-write 必须原样保留这些字段。
 
-每次发送都会冻结本次 Agent、命名 Agent 目录和 Skill 快照。任务运行中修改配置只影响下一次任务；子 Agent 权限也始终受 root task 权限上限约束。
+每次发送都会冻结本次 Agent、命名 Agent 目录和 Skill 快照。任务运行中修改配置只影响下一次任务；子 Agent 的工具权限也始终受 root task 工具权限 profile 上限约束。
 
 ```ts
 const started = await window.__syncastAgent.run("syncast.agent.delegate", {
@@ -144,6 +144,38 @@ await window.__syncastAgent.run("syncast.docs.readForAgent", {
 ```
 
 `syncast.docs.readForAgent` 返回的是 canonical `docRead` 结构；后续读取章节正文时使用 `outline` 中的真实 `sectionId`，继续分页使用 `nextCursor`，重复上下文去重使用 `content.contextKey` / `loadedContextKeys`。
+
+## 继续或干预正在运行的 Agent
+
+已经有运行中的根任务时，默认给主 Agent 续发，不要再调用 `syncast.agent.delegate` 创建第二个任务：
+
+```ts
+await window.__syncastAgent.run("syncast.agent.followup", {
+  taskId: "<root-task-id>",
+  prompt: "用户调整了计划：先完成分镜，再继续生成。"
+});
+```
+
+主 Agent 仍负责整体编排。只有用户明确点名子 Agent，或某个子任务需要恢复、定点指导、中断时，才直接操作稳定 Thread：
+
+```ts
+await window.__syncastAgent.run("syncast.agent.thread.message", {
+  taskId: "<root-task-id>",
+  subAgentId: "<thread-id>",
+  message: "先校验现有文档，不要重复写入。",
+  delivery: "asap"
+});
+
+await window.__syncastAgent.run("syncast.agent.thread.continue", {
+  taskId: "<root-task-id>",
+  subAgentId: "<thread-id>",
+  prompt: "沿用原上下文完成剩余 TODO。"
+});
+```
+
+`interrupt` 默认 `scope="turn"`，Thread 之后仍可继续；只有明确永久关闭时才传 `scope="thread"`。转后台必须传 `confirmedContinuedBilling: true`，因为主回答结束后子 Agent 仍会运行和计费。
+
+任务控制不按原发起人划分：项目内具备操作权限的用户都可以继续或中断项目任务。原发起人快照只保留计费、归因和公平调度用途；新建任务、修改文档和发起生成仍遵循各自的项目规则。
 
 ## 创建或更新 custom Skill
 

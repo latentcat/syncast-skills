@@ -300,8 +300,18 @@ syncast project-agent capabilities --action syncast.agent.delegate --disclosure 
 syncast project-agent run syncast.project.inspect --input '{"limit":10}'
 syncast project-agent run syncast.doc.graphql --input '{"query":"query { agents { agents { id name model allowLoadSkills skills { skillId skillType preload } childAgents { childAgentId alias displayName } } } }"}'
 syncast project-agent run syncast.agent.delegate --input '{"goal":"整理项目方案","executor":{"kind":"model","model":"gemini-3.5-flash"},"wait":false}'
+syncast project-agent run syncast.agent.followup --input '{"taskId":"<running-root-task-id>","prompt":"调整计划后继续完成剩余 TODO"}'
+syncast project-agent run syncast.agent.thread.get --input '{"taskId":"<root-task-id>","subAgentId":"<thread-id>"}'
+syncast project-agent run syncast.agent.thread.continue --input '{"taskId":"<root-task-id>","subAgentId":"<thread-id>","prompt":"沿用原上下文继续"}'
 syncast project-agent materialize-media-segments --asset-id <audio-or-video-asset-id> --segments '[{"startTimeSeconds":0,"endTimeSeconds":15},{"startTimeSeconds":15,"endTimeSeconds":30}]'
 ```
+
+`project-agent run` already forwards any capability discovered from the page,
+so these Agent lifecycle actions do not require dedicated CLI subcommands or a
+new bridge protocol. Default to `syncast.agent.followup` for a running root
+task. Use `syncast.agent.thread.*` only for explicit child intervention or
+recovery; moving a child to background requires
+`confirmedContinuedBilling: true` and continues billing after the root answer.
 
 Project document creation stays on the generic bridge; there is no separate
 `syncast docs create` command. Create the complete tree and initial content in

@@ -1,6 +1,6 @@
 # Syncast Agent Actions 参考
 
-这份文档是外部 Agent 操作 Syncast 网页的完整能力索引。当前外部 Agent Action Layer 显式暴露 **38 个高层 action**，分成两类：
+这份文档是外部 Agent 操作 Syncast 网页的完整能力索引。当前外部 Agent Action Layer 显式暴露 **50 个高层 action**，分成两类：
 
 - **项目业务能力**：项目上下文、GraphQL/Loro、时间轴草稿、频道、消息、资源、文档、任务、模型查询和内部 Agent 委托。
 - **Bridge 便捷方法**：身份初始化、能力发现、等待/取结果、通知和历史；这些 transport 方法不再重复注册成 action。
@@ -48,9 +48,10 @@ await window.__syncastAgent.run(actionName, input, options);
 - 内部 Agent 是 Syncast 流程内的 AI 对话任务执行者；外部 Agent 是与人类等同的项目操作者。`syncast.agent.delegate` 的语义是“外部 Agent 发起，内部 Agent 执行”。
 - 任务身份分两层记录：`initiator` 记录谁发起任务（当前支持外部 Agent / 调试器 / 系统，后续可扩展到协作用户 A/B），`task.type` 或 action 名记录任务业务类型（内部 Agent 对话、Imagine 等）。
 - Loro 读写统一走项目已有 monodoc GraphQL 或前端封装好的任务路径。
-- 写操作必须经过项目权限检查；GraphQL mutation 会先等待 Streams 初始同步，再执行 `saveAndSync`。
+- 项目写操作必须经过现有项目操作权限检查；GraphQL mutation 会先等待 Streams 初始同步，再执行 `saveAndSync`。控制已经存在的 Agent 任务不再按任务发起人另行划分。
+- 权限不在各任务模块重复定义：前端所有任务控制 Action 统一声明为 `edit`，后端统一映射到项目权限服务的 `ProjectAction.OPERATE_TASK`（editor 及以上）；Thread/任务读取统一使用 `read`。主 Agent、子 Agent、Task Manager 和外部 Agent Action 共用这套规则。
 - 内部 Agent 任务在提交时冻结本次 Agent、可用 Agent 目录与 Skill 快照；任务运行中修改项目 Agent/Skill 只影响下一次任务。
-- root task 权限是硬上限。声明 Agent/命名 Agent 可以继承或进一步收紧，但不能提升 root 权限；当前项目 UI 中的 Agent 默认继承 root 权限。
+- root task 的工具权限 profile 是执行能力硬上限。声明 Agent/命名 Agent 可以继承或进一步收紧，但不能提升工具权限；这与“哪个项目协作者可以继续/中断任务”是两套独立规则。
 - 声明 Agent 始终可按需加载全部内置 Skill；custom Skill 默认范围是已选 binding、依赖与 `alwaysApply` Skill。`allowLoadSkills=true` 才额外开放未选中的项目 custom Skill；新 Agent 建议显式写 `false`，旧 Agent 缺失字段按 `true`。binding 的 `preload` 只控制启动时是否注入完整说明，旧 binding 缺少 `preload` 时按 `true`。
 - 长任务不靠反复读进度，优先使用 bridge 的 `wait`、`subscribe`、`notifications.list`；`wait(ref, { returnResult: true })` 可一次返回通知和结果。外部调用只回传最终文本、终态和产物 ID；CLI 需要调试完整 parts/tool 轨迹时显式加 `--full-result`。
 - 大列表、长正文、消息 parts、模型 schema、GraphQL 字段说明都采用渐进式披露：默认返回 `summary/index`，需要时显式传 `disclosure`、`mode`、`include*`、`limit/offset` 展开。
@@ -272,7 +273,7 @@ await window.__syncastAgent.run("syncast.assets.materializeMediaSegments", {
 | --- | --- | --- | --- | --- |
 | `syncast.tasks.list` | read | `{ status?: Array<"pending" \| "processing" \| "deferred" \| "completed" \| "failed" \| "cancelled">, type?: Array<"chat" \| "imagine">, channelId?, disclosure?, limit? }` | 默认运行中/失败任务摘要；可显式查 completed | 查看当前网页任务 |
 | `syncast.task.status` | read | `{ taskId }` | 单个任务摘要 | 查询任务状态 |
-| `syncast.task.cancel` | edit | `{ taskId }` | `{ cancelled: true }` | 走现有前端路径取消任务 |
+| `syncast.task.cancel` | edit | `{ taskId }` | `{ cancelled: true }` | 走现有前端路径取消任务；不要求是原任务发起人 |
 
 通知类型包括：
 
@@ -325,6 +326,12 @@ syncast project-agent run syncast.imagine.submitToChannel --input '{"channelId":
 | Action | 权限 | 输入 | 输出 | 用途 |
 | --- | --- | --- | --- | --- |
 | `syncast.agent.delegate` | edit | `{ goal?, prompt?, executor?, channelId?, channelTitle?, includeHistory?, wait?, timeoutMs? }` | `{ localTaskId, messageId, ref }`；等待时包含 notification/result | 创意构思、业务判断或未知结构的委托入口；不用于机械搬运完整正文 |
+| `syncast.agent.followup` | edit | `{ taskId, prompt, clientQueueItemId? }` | follow-up accepted receipt | 给现有运行中的主 Agent 追加指令，不创建新任务或频道 |
+| `syncast.agent.thread.get` | read | `{ taskId, subAgentId }` | 持久 Thread/Turn 状态、模型、工具错误、用量 | 精确查看某个子 Agent |
+| `syncast.agent.thread.message` | edit | `{ taskId, subAgentId, message, delivery?, clientMessageId? }` | mailbox receipt | 给运行中子 Agent 发消息；默认 `asap`，也可 `when_idle` |
+| `syncast.agent.thread.continue` | edit | `{ taskId, subAgentId, prompt, clientRequestId?, backgroundAuthorization? }` | 新 Turn receipt | 在同一 Thread 上继续，继承子 Agent 自己的独立上下文 |
+| `syncast.agent.thread.interrupt` | edit | `{ taskId, subAgentId, scope? }` | interrupt/close receipt | 默认只中断当前 Turn；`scope="thread"` 永久关闭 Thread |
+| `syncast.agent.thread.background` | edit | `{ taskId, subAgentId, confirmedContinuedBilling: true }` | background handoff receipt | 显式转后台；主回答可结束，子 Agent 继续运行和计费 |
 | `syncast.agent.approval.respond` | edit | `{ approvalId, approved, feedback? }` | 审批结果摘要 | 响应该外部 Agent 托管的内部 Agent action approval |
 
 `syncast.agent.delegate` 允许只传 `goal`，它会自动创建/复用专用的自动化 chat channel，不会默认使用人类当前正在查看的频道，也不会默认携带整段频道历史。只有当外部 Agent 明确需要延续某个频道上下文时，才传 `channelId/channelTitle` 和 `includeHistory: true`。
@@ -345,7 +352,11 @@ syncast project-agent run syncast.imagine.submitToChannel --input '{"channelId":
 
 先用 `syncast.doc.graphql` 查询 `agents { agents { id name model allowLoadSkills skills { skillId skillType preload } childAgents { childAgentId alias displayName whenToUse } } }` 再填写 `executor.agentId`。读取后更新 Agent 时必须保留 `allowLoadSkills` 和每个 binding 的 `preload`；前者缺失按旧 Agent 的 `true` 解释，后者缺失按旧 binding 的 `true` 解释。CLI 的全局 `--agent-id` 是外部操作者身份，不是项目内执行器；不要混用。
 
-任务使用提交时快照。任务运行中修改 Agent 指令、Skill 内容、binding 或 preload，不会改变当前任务，只会从下一次发送开始生效。命名 Agent 的权限也不能超过 root task；当前 UI 创建的项目 Agent 没有独立持久化权限，默认继承 root。
+任务使用提交时快照。任务运行中修改 Agent 指令、Skill 内容、binding 或 preload，不会改变当前任务，只会从下一次发送开始生效。命名 Agent 的工具权限也不能超过 root task；当前 UI 创建的项目 Agent 没有独立持久化工具权限，默认继承 root。
+
+控制任务时默认给主 Agent 发 `syncast.agent.followup`，让主 Agent继续负责整体编排。只有用户明确指定某个子 Agent、需要恢复/中断卡住的子任务，或主 Agent正在等待且需要定点干预时，才直接使用 `syncast.agent.thread.*`。不要用 `syncast.agent.delegate` 假装续发运行中任务：它会创建一次新的根任务；`channelId + includeHistory` 只代表新任务读取旧频道上下文。
+
+项目任务是协作状态。项目内具备正常操作权限的用户都可以 follow-up、发消息、继续、中断、转后台或取消，不要求是原任务发起人；冻结的原发起人仍用于计费、归因和公平调度。项目外的历史任务没有协作范围，仍只允许原发起人操作。
 
 `timeoutMs` 只控制等待窗口，超时不会取消任务，必须保留 `ref` 后续补拉。
 
