@@ -101,7 +101,7 @@ syncast project-agent capabilities
 syncast project-agent capabilities --action syncast.agent.delegate --disclosure full
 syncast project-agent capabilities --action syncast.imagine.submit --disclosure full
 syncast project-agent capabilities --action syncast.imagine.submitToChannel --disclosure full
-syncast project-agent capabilities --action syncast.docs.imagineBlocks.submitBatch --disclosure full
+syncast project-agent capabilities --action syncast.docs.imagineBlocks.history --disclosure full
 ```
 
 随后仍然按本 skill 选择 actionName / input / options，再通过 CLI 发送：
@@ -112,6 +112,7 @@ syncast project-agent run syncast.agent.delegate --input '{"goal":"请只返回�
 syncast project-agent run syncast.imagine.submit --input '{"modelType":"nano-banana-2","prompt":"生成角色设定图","targetAssetName":"角色A"}'
 syncast project-agent run syncast.imagine.submitToChannel --input '{"channelId":"<imagine-channel-id>","modelType":"nano-banana-2","prompt":"生成角色设定图","targetAssetName":"角色A"}'
 syncast project-agent run syncast.docs.imagineBlocks.submitBatch --input '{"docId":"<doc-id>"}'
+syncast project-agent run syncast.docs.imagineBlocks.history --input '{"docId":"<doc-id>","blockId":"<block-id>","disclosure":"full"}'
 syncast project-agent wait --ref '{"kind":"agent_chat","projectId":"..."}' --return-result
 syncast project-agent asset-download-urls --asset-id "asset-id"
 syncast project-agent materialize-media-segments --asset-id "audio-asset-id" --segments '[{"segmentId":"part-1","startTimeSeconds":0,"endTimeSeconds":15},{"segmentId":"part-2","startTimeSeconds":15,"endTimeSeconds":30}]'
@@ -136,7 +137,7 @@ syncast project-agent approval respond <approvalId> --deny --feedback "用户拒
 
 - 本 skill 负责告诉外部 Agent 怎么理解 Syncast 项目、选择 action、组织 GraphQL / input。
 - `syncast project-agent` 只负责把请求送进当前浏览器项目页并返回统一 `{ ok, data/error }` 结果。
-- 浏览器 bridge 与 CLI 只发现和执行显式标记的外部高层 action。`syncast.imagine.submit` / `submitToChannel`、`syncast.timeline.generationSlots.submit` 和 `syncast.docs.imagineBlocks.submit/submitBatch` 都是公开的用户等价操作；草稿渲染器、重复 transport helper、兼容别名等内部实现不会出现在 capabilities 中，直接调用返回 `action_not_exposed`。
+- 浏览器 bridge 与 CLI 只发现和执行显式标记的外部高层 action。`syncast.imagine.submit` / `submitToChannel`、`syncast.timeline.generationSlots.submit` 和 `syncast.docs.imagineBlocks.*` 版本操作都是公开的用户等价操作；草稿渲染器、重复 transport helper、兼容别名等内部实现不会出现在 capabilities 中，直接调用返回 `action_not_exposed`。
 - 用户继续操作 UI；外部 Agent 不通过 Playwright click/fill 操作业务 UI。
 - 如果当前环境允许原生、可写的 Playwright `page.evaluate`，也可以直接调用 `window.__syncastAgent.run`；如果工具声明 `evaluate` 只读，必须使用 CLI Bridge 或其它正式 bridge。
 
@@ -199,7 +200,7 @@ await window.__syncastAgent.run("syncast.docs.readForAgent", {
 ## 规则
 
 - 创意构思、剧本设计、未知结构、需要项目内专业 Skill 判断的任务，使用 `syncast.agent.delegate`；委托只负责产出草案或创作判断，不负责把已确定内容机械搬入项目。
-- 用户已提供完整正文、要求精确字段更新、替换确定文本或删除指定段落时，直接使用 `syncast.doc.graphql`，不要让内部 Agent 转述、改写或代为搬运。删除仍遵守删除授权规则。
+- 用户已提供完整正文或要求确定性写入时，不要让内部 Agent 转述、改写或代为搬运：新建完整文档和元数据字段走 `syncast.doc.graphql`；已有文档的一处或多处确定文本替换优先用 `syncast.docs.replaceText`；章节级或删除操作再用 raw `patchDoc`。删除仍遵守删除授权规则。
 - 创建或更新 custom Skill 时，必须先查同名项，确认 `alwaysApply`、`depends` 和是否绑定 Agent；写入后按 ID 回读完整 `name/description/instructions/iconName/alwaysApply/depends`，校验所有 `@{doc:...}` / `@{doc-section:...}` 使用真实 `docId`，并扫描正文、描述和元数据是否混入外部接入实现。需要绑定 Agent 时同时回读 Agent，并保留 `allowLoadSkills` 与全部 `skills.preload`。
 - 用户明确要求的同范围、非计费项目创建或编辑视为已授权，不重复询问。只有扩大范围、启动额外计费/积分任务、删除内容或目标不明确时再确认；会造成未请求内容丢失的整段覆盖按删除处理，用户明确要求的精确替换不重复确认。
 - 要给正在运行的主 Agent 追加指令，使用 `syncast.agent.followup { taskId, prompt }`，它复用原任务，不创建新任务。只有已结束或根本没有运行中任务、且确实要新开一次对话时，才用 `syncast.agent.delegate`；`channelId + includeHistory` 只是让新任务读取旧频道上下文。
@@ -214,7 +215,7 @@ await window.__syncastAgent.run("syncast.docs.readForAgent", {
 - `syncast.agent.delegate` 默认使用专用自动化频道，不使用当前人工频道，也不携带历史。只有明确要延续某个频道上下文时，才传 `channelId/channelTitle` 和 `includeHistory: true`。
 - `timeoutMs` 只限制等待时长，超时不会取消任务；保存 `ref` 后用 bridge 的 `notifications.list` 或 `wait(ref, { returnResult: true })` 补拉。
 - 只有在需要精确读写项目数据，且不需要内部 Agent 业务推理时，才使用 `syncast.doc.graphql`。它是动态权限：query 是 read，mutation 会要求 edit 并落盘。
-- 新建内容型文档必须一次调用 `ensureDocPages(inputs)`：每页传跨重试稳定的 `logicalKey` 和非等效空的 `initialMarkdown`，同批子页用 `parentLogicalKey` 建树；只有纯目录页可设 `containerOnly: true`。已有目标先查真实 ID，再用 `existingDocId` 显式采用；默认不按标题猜测，也不静默创建同名页。每项 `success=true` 且 `ready=true` 已表示正文后置条件验证通过，无需机械回读；修改已有正文用 `patchDoc`。完整内部 schema 的 `createDocPage` 只是 App/历史调用方的空白页兼容入口，外部 `syncast.doc.graphql` 会拒绝它，不得把它当备用路径。
+- 新建内容型文档必须一次调用 `ensureDocPages(inputs)`：每页传跨重试稳定的 `logicalKey` 和非等效空的 `initialMarkdown`，同批子页用 `parentLogicalKey` 建树；只有纯目录页可设 `containerOnly: true`。已有目标先查真实 ID，再用 `existingDocId` 显式采用；默认不按标题猜测，也不静默创建同名页。每项 `success=true` 且 `ready=true` 已表示正文后置条件验证通过，无需机械回读。修改已有正文的一处或多处确定文本时优先用 `syncast.docs.replaceText`，每个 `search` 必须在最新 Markdown 中恰好命中一次；章节、行级或整体结构修改才直接调用 `patchDoc`，并先从 `syncast.doc.graphql.explain` 复制完整 Patch DSL，不得猜测字符串格式。完整内部 schema 的 `createDocPage` 只是 App/历史调用方的空白页兼容入口，外部 `syncast.doc.graphql` 会拒绝它，不得把它当备用路径。
 - 读取文档优先用 `syncast.docs.readForAgent`，它返回 canonical `docRead` 结构；章节读取使用真实 `sectionId`，分页使用 `nextCursor`，去重使用 `contextKey/loadedContextKeys`。
 - GraphQL query/mutation 中的字段名必须使用 **camelCase**（如 `updatedAt`、`parentId`），不要用 Loro 内部的 snake_case（如 `updated_at`）。可先调用 `syncast.doc.graphql.explain` 获取正确示例。
 - Agent-facing GraphQL 和资产 action 会过滤隐藏的 3D/model 资产（`glb` / `stl` / `fbx`），也不暴露存储、缓存、provider workflow 或底层资产创建接口。下载资产用 `syncast.assets.downloadUrls`，不要绕过 action layer 查实现字段。
@@ -223,8 +224,8 @@ await window.__syncastAgent.run("syncast.docs.readForAgent", {
 - 需要把音频或视频的多个时间范围变成可分别引用的普通资产时，使用 `syncast.assets.materializeMediaSegments`，或 CLI 便捷命令 `syncast project-agent materialize-media-segments --asset-id ... --segments ...`。完整源区间直接复用源 `assetId`，不执行裁切；其它区间内容相同时复用已有 Asset，不重复创建或上传；只有不同内容才创建新资产。分段可不等长或重叠，单段失败不回滚其它成功资产。省略 `targetFolderId` / `--folder-id` 时跟随源资产目录；需要安全重试同一外部请求时传稳定的 `idempotencyKey` / `--idempotency-key`，相同 key 不得搭配不同输入。
 - 必须先判断工作归属，而不是先判断是否需要频道历史：只要用户是在项目中工作，所有真实生成都必须走项目 Action，确保提示词、参数、任务状态、结果消息和 Assets 留在项目中。直接 CLI 只属于用户明确选择的项目外独立资产流程。
 - 项目内未指定频道时默认调用 `syncast.imagine.submit`，让前端自动解析或创建 Agent Imagine 频道；用户指定真实现有 Imagine `channelId` 时调用 `syncast.imagine.submitToChannel`。两者都走前端现有 Imagine 入队与消息持久化链路。
-- 文档中的待生成 Imagine 块不是普通频道生成，也不能用 `syncast.doc.graphql` 手动改状态来代替。生成单块使用 `syncast.docs.imagineBlocks.submit { docId, blockId }`；等同顶部“批量生成待生成”使用 `syncast.docs.imagineBlocks.submitBatch { docId, blockIds? }`，省略 `blockIds` 时提交该文档全部待生成块。
-- 文档批量提交会并行启动每个块的前端入队，不等待上一块完成；单块失败会出现在 `failures` 中，不阻塞其它块。每个返回的 `submissions[].ref` 可独立等待，最终资产仍由同一任务完成链路替换回原文档块。真实模型/provider 并发仍可能受服务端限流。
+- 文档 Imagine 块不是普通频道生成，也不能用 `syncast.doc.graphql` 手动改状态来代替。`syncast.docs.imagineBlocks.submit { docId, blockId }` 会冻结当前输入并新增一个独立版本；即使已有结果或其它版本仍在运行，也可再次调用。`submitBatch` 省略 `blockIds` 时只提交全部待生成块，显式传入时则为这些块并行新增版本。
+- 每个 `submissions[].ref` 可独立等待；单块失败只进入 `failures`。生成完成后草稿继续可编辑，不会自动替换成 Asset。先调用 `syncast.docs.imagineBlocks.history` 取得稳定的 `versions[].results[]` 引用；把其中一个完整 result 原样传给 `selectResult` 可切换预览，传给 `fixAsAsset` 才会固定为普通 Asset 块。仍有版本运行时不要固定；之后可用 `restoreGeneration` 恢复草稿和全部历史。真实模型/provider 并发仍可能受服务端限流。
 - 直接 CLI 的 `--project` / `--folder` / `--reference-asset` 仅保留给明确要求低层 API 的兼容集成；外部 Agent 在项目工作中不得选择这条路径。项目内目标目录和引用素材必须使用项目现场解析出的真实 folder/Asset ID，并传给项目 Action。
 - Imagine draft compiler、typed wait/result、通知 action，以及被公开高层 action 取代的兼容 list/search/get 与 `agent.chat.submit` 仍属于内部实现。不要从 browser bridge 或 `project-agent run` 猜这些名字；使用 capabilities 返回的规范入口。
 - 内部 Agent 的 `imagine` 工具与外部 CLI 是两套消费方契约：内部 Agent 在实时项目中只传 `asset_name` 和已确认存在的 `target_folder_id`；不传路径、名称或猜测 ID。它引用项目素材时只写真实 `asset_id` / `reference_type`，文件定位由执行器处理。

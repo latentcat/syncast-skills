@@ -55,7 +55,7 @@
 ## 选择委托还是直接 GraphQL
 
 - 创意构思、剧本设计、未知结构、需要项目内专业 Skill 判断：委托内部 Agent，并明确要求只返回草案或判断，不执行机械写入。
-- 用户已提供完整正文、精确字段更新、确定文本替换、删除指定段落：直接使用项目 GraphQL；不要让内部 Agent 转述或改写。删除在执行方式上仍走 GraphQL，但按删除授权规则确认。
+- 用户已提供完整正文、精确字段更新、确定文本替换、删除指定段落：直接执行确定性写入，不要让内部 Agent 转述或改写。新建完整文档和元数据走项目 GraphQL；已有文档的确定文本替换优先用 `syncast.docs.replaceText`；章节和删除操作再用 raw `patchDoc`。删除按授权规则确认。
 - 用户明确要求的同范围、非计费创建或编辑已经授权，不再确认一次。只有扩大范围、额外积分消耗、删除内容或目标不明确时询问；会造成未请求内容丢失的整段覆盖按删除处理，用户明确要求的精确替换不重复确认。
 
 ## 检查项目
@@ -198,7 +198,7 @@ custom Skill 写入使用固定流程，不能只看 mutation 是否成功：
 - `success=true` 且 `ready=true` 已完成写入后置条件检查，不做机械 `docRead`。只有语义审校、引用验真或图标/封面等额外元数据验收时再回读。修改已有有效正文使用真实 `docId` 调 `patchDoc`。
 - 用户阅读文档检查 `title/description/body`；项目规范还要检查 `docKind/specInjectionMode`。所有 `@` 文档引用使用真实 ID。
 - 提示词模板先查同名项，写入后回读完整 `name/description/targetTypes/inputTemplate/promptTemplate/variables`，对所有文本字段做受众隔离检查。
-- 用户给出完整正文、精确字段更新或确定删除目标时直接 GraphQL，不把机械搬运委托给内部 Agent。删除仍按授权规则确认；精确替换不重复确认。
+- 用户给出完整正文、精确字段更新或确定删除目标时直接执行确定性写入，不把机械搬运委托给内部 Agent。已有文档的确定文本替换优先用 `syncast.docs.replaceText`；删除仍按授权规则确认，精确替换不重复确认。
 
 ## 校验 @ 引用
 
@@ -310,9 +310,9 @@ await window.__syncastAgent.run("syncast.timeline.generationSlots.submit", {
 });
 ```
 
-## 生成文档内 Imagine 块
+## 生成和采用文档内 Imagine 版本
 
-文档里已经有待生成 Imagine 块时，不要把参数复制到直接 CLI 或普通 ImagineChannel；那样不会把结果回填原块。单块生成：
+文档 Imagine 块保留一个持续可编辑的根草稿；每次生成都会冻结当时输入，形成独立版本。不要把参数复制到直接 CLI 或普通 ImagineChannel；那样不会与原块建立版本关系。单块首次生成、再次生成或并行多抽都调用同一个 action：
 
 ```ts
 await window.__syncastAgent.run("syncast.docs.imagineBlocks.submit", {
@@ -320,6 +320,8 @@ await window.__syncastAgent.run("syncast.docs.imagineBlocks.submit", {
   blockId: "<imagine-block-id>"
 });
 ```
+
+即使已有结果或另一个版本仍在运行，也可以再次调用 `submit`。为了避免误双击，外部 Agent 不应无条件重放同一调用；需要安全重试时先保留返回的 `submission.ref` 并等待或查询历史。
 
 等同人类点击文档顶部“批量生成待生成”：
 
@@ -330,7 +332,55 @@ const batch = await window.__syncastAgent.run(
 );
 ```
 
-如只生成选中的块，传 `blockIds`。批量 action 并行启动各块入队，返回独立的 `submissions[].ref`；单块失败记录在 `failures`，不会阻塞其它块。后续分别等待这些 ref，并检查原文档块是否已被生成资产替换。
+省略 `blockIds` 时只提交全部待生成块；显式传 `blockIds` 时会为这些块各新增一个版本，包括已有结果或正在生成的块。批量 action 并行入队并返回独立 `submissions[].ref`；单块失败记录在 `failures`，不会阻塞其它块。
+
+等待版本完成后读取权威历史：
+
+```ts
+const history = await window.__syncastAgent.run(
+  "syncast.docs.imagineBlocks.history",
+  {
+    docId: "<doc-id>",
+    blockId: "<imagine-block-id>",
+    disclosure: "full"
+  }
+);
+```
+
+`versions` 按创建时间稳定编号；一次版本可能有多个 `results`。不要只凭 `assetId` 推断版本，把选中的完整 result 对象原样传给后续 action。只切换当前预览：
+
+```ts
+await window.__syncastAgent.run(
+  "syncast.docs.imagineBlocks.selectResult",
+  {
+    docId: "<doc-id>",
+    blockId: "<imagine-block-id>",
+    result: history.data.versions[0].results[0]
+  }
+);
+```
+
+用户确认采用某一结果后，且 `activeVersionCount === 0`，再固定为普通 Asset 块：
+
+```ts
+await window.__syncastAgent.run(
+  "syncast.docs.imagineBlocks.fixAsAsset",
+  {
+    docId: "<doc-id>",
+    blockId: "<imagine-block-id>",
+    result: history.data.versions[0].results[0]
+  }
+);
+```
+
+固定不会删除生成历史。如需继续编辑或再生成，恢复生成模式：
+
+```ts
+await window.__syncastAgent.run(
+  "syncast.docs.imagineBlocks.restoreGeneration",
+  { docId: "<doc-id>", blockId: "<imagine-block-id>" }
+);
+```
 
 ## 关键帧生成
 

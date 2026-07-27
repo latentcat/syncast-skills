@@ -1,6 +1,6 @@
 # Syncast Agent Actions 参考
 
-这份文档是外部 Agent 操作 Syncast 网页的完整能力索引。当前外部 Agent Action Layer 显式暴露 **50 个高层 action**，分成两类：
+这份文档是外部 Agent 操作 Syncast 网页的完整能力索引。当前外部 Agent Action Layer 显式暴露 **55 个高层 action**，分成两类：
 
 - **项目业务能力**：项目上下文、GraphQL/Loro、时间轴草稿、频道、消息、资源、文档、任务、模型查询和内部 Agent 委托。
 - **Bridge 便捷方法**：身份初始化、能力发现、等待/取结果、通知和历史；这些 transport 方法不再重复注册成 action。
@@ -76,7 +76,7 @@ await window.__syncastAgent.run(actionName, input, options);
 | --- | --- | --- | --- | --- |
 | `syncast.doc.graphql` | dynamic：query=read，mutation=edit | `{ query, variables?, idempotencyKey? }` | GraphQL result | 对当前 Loro doc 执行 query / mutation；能力元数据会标记 `permissionMode: "dynamic"` 和写入风险 |
 | `syncast.doc.graphql.schema` | read | `{ mode?, module?, field?, query? }` | 默认模块索引；可查模块/字段/搜索 | 快速了解可用 GraphQL 面 |
-| `syncast.doc.graphql.explain` | read | 无 | 常用查询示例 | 避免 Agent 猜字段 |
+| `syncast.doc.graphql.explain` | read | 无 | 常用查询、文档 Patch DSL 和变量示例 | 避免 Agent 猜字段或 `patch` 字符串格式 |
 
 GraphQL 字段采用按模块渐进式披露。先调用 `syncast.doc.graphql.schema` 查看模块和字段摘要；需要写具体 query/mutation 时，再按需加载对应文件：
 
@@ -256,14 +256,19 @@ await window.__syncastAgent.run("syncast.assets.materializeMediaSegments", {
 | Action | 权限 | 输入 | 输出 | 用途 |
 | --- | --- | --- | --- | --- |
 | `syncast.docs.readForAgent` | read | `{ mode?, docId?, query?, target?, sectionId?, startBlockIndex?, endBlockIndex?, cursor?, loadedContextKeys?, skipLoaded?, maxChars?, changedSince?, limit?, offset? }` | 直接返回 canonical `docRead` 结构：`documents/outline/hits/content/contextKey/nextCursor` | 给外部 Agent 渐进式读取内部 Agent 写出的文档 |
-| `syncast.docs.imagineBlocks.submit` | edit | `{ docId, blockId }` | 单块 `submission`、任务 `ref` 和汇总计数 | 等同点击文档内单个待生成 Imagine 块的生成按钮 |
-| `syncast.docs.imagineBlocks.submitBatch` | edit | `{ docId, blockIds? }` | `submissions/failures/skipped` 与对应计数 | 等同顶部“批量生成待生成”；省略 `blockIds` 时提交全部待生成块 |
+| `syncast.docs.replaceText` | edit | `{ docId, replacements: [{ search, replacement }] }` | `{ docId, success, operationCount }` | 批量执行严格唯一匹配的精确正文替换；内部编译 Patch DSL，不重建未命中的 Imagine / Asset 块 |
+| `syncast.docs.imagineBlocks.history` | read | `{ docId, blockId, disclosure?: "summary" \| "full" }` | 当前草稿/固定状态、选择结果、运行数和 `versions[].results[]`；full 额外返回当前与冻结输入 | 读取可稳定引用的版本历史 |
+| `syncast.docs.imagineBlocks.submit` | edit | `{ docId, blockId }` | 单块 `submission`、任务 `ref` 和汇总计数 | 冻结当前输入并新增独立版本；允许已有结果或其它版本运行中再次发起 |
+| `syncast.docs.imagineBlocks.submitBatch` | edit | `{ docId, blockIds? }` | `submissions/failures/skipped` 与对应计数 | 省略 ID 时生成全部待生成块；显式 ID 时为这些块并行新增版本 |
+| `syncast.docs.imagineBlocks.selectResult` | edit | `{ docId, blockId, result }` | 当前采用的 result / asset | 选择 history 返回的精确结果作为当前预览 |
+| `syncast.docs.imagineBlocks.fixAsAsset` | edit | `{ docId, blockId, result }` | 固定后的 Asset 块摘要 | 把明确版本结果落为普通 Asset 块并保留恢复引用 |
+| `syncast.docs.imagineBlocks.restoreGeneration` | edit | `{ docId, blockId }` | 恢复后的草稿摘要 | 从已固定 Asset 恢复可编辑草稿与全部历史 |
 
 `syncast.docs.readForAgent` 默认只返回索引，不返回正文，并且语义与 monodoc GraphQL 的 `docRead` 保持一致。典型流程是：先 `{ mode: "index" }` 看文档地图，再 `{ mode: "outline", docId }` 取真实 `sectionId` / `startBlockIndex` / `endBlockIndex`，最后 `{ mode: "content", docId, target: "section", sectionId, maxChars, loadedContextKeys }` 读取必要正文。继续读取使用返回的 `nextCursor`，去重使用 `contextKey`。全文只在用户明确需要时使用 `{ mode: "content", target: "full" }`。
 
-文档写入如果是简单结构化 mutation，可用 `syncast.doc.graphql` 的 `ensureDocPages`、`updateDocPage`、`moveDocPage`、`moveDocPageBefore`、`moveDocPageAfter`、`deleteDocPage`、`patchDoc`、`setDocBlocks`。新建内容型页面必须通过 `ensureDocPages` 同时提交稳定 `logicalKey` 和有效 `initialMarkdown`；只有纯目录可设 `containerOnly=true`。完整内部 schema 中的 `createDocPage` 只供 App/历史调用方创建空白页，外部 Agent 合同会拒绝它。如果是业务性内容创作，优先用 `syncast.agent.delegate` 让内部 Agent 返回草案，再由外部 Agent 把确认内容一次写入。
+文档正文的一处或多处确定文本替换优先用 `syncast.docs.replaceText`。它要求每个 `search` 在按顺序更新的最新 Markdown 中恰好命中一次；任一项缺失或歧义时整批拒绝，不保存部分结果。章节、行级或整页结构修改再用 `syncast.doc.graphql` 的 `patchDoc`，并先从 `syncast.doc.graphql.explain` 复制完整 Patch DSL；`patch` 不是 JSON 或普通 diff。其它简单结构化 mutation 包括 `ensureDocPages`、`updateDocPage`、`moveDocPage`、`moveDocPageBefore`、`moveDocPageAfter`、`deleteDocPage` 和兼容入口 `setDocBlocks`。新建内容型页面必须通过 `ensureDocPages` 同时提交稳定 `logicalKey` 和有效 `initialMarkdown`；只有纯目录可设 `containerOnly=true`。完整内部 schema 中的 `createDocPage` 只供 App/历史调用方创建空白页，外部 Agent 合同会拒绝它。如果是业务性内容创作，优先用 `syncast.agent.delegate` 让内部 Agent 返回草案，再由外部 Agent 把确认内容一次写入。
 
-文档 Imagine 块生成必须使用上述高层 action，不能通过 `syncast.doc.graphql` 手动把块改成 `generating`，也不能用普通 `syncast.imagine.submitToChannel` 代替：只有文档 action 会保留 `docId/blockId` 目标并在完成后把资产替换回原块。`submitBatch` 会同时启动所有选中项的入队；一个块失败只进入 `failures`，不会阻塞其它块。每个成功项都有独立 `submission.ref`，可分别用 bridge `wait` 等待。
+文档 Imagine 版本操作必须使用上述高层 action，不能通过 `syncast.doc.graphql` 手动改状态，也不能用普通 `syncast.imagine.submitToChannel` 代替。草稿块会持续保留；每次 submit 只冻结本次输入并建立独立版本，不会在完成时自动替换。`submitBatch` 会同时启动选中项，一个块失败只进入 `failures`，每个成功项都有独立 `submission.ref`。选择或固定前重新调用 `history`，并把一个完整 `versions[].results[]` 对象原样传给后续 action，避免凭 assetId 猜版本。仍有运行中版本时禁止 `fixAsAsset`。
 
 项目骨架或模板式初始化不要直接写 Loro、IndexedDB 或后端数据库。复用已发布的模板包时，走 App/Library/CLI 的项目模板包导入路线；如果用户明确要求外部 Agent 在当前项目内创建结构，Docs 用一次 `ensureDocPages(inputs)` 建树并写入全部初始正文，同批子项通过 `parentLogicalKey` 关联，重放继续使用相同 `logicalKey`；资源目录用 `ensureFolderPath(input: { path: "/Shots/Act 1" })` 创建或复用文件夹，需要搬运资产时再用 `moveAssetsToFolder` 的 `folderPath`。
 
@@ -505,7 +510,7 @@ const result = await window.__syncastAgent.wait(savedRef, {
 ## 什么时候用哪条路径
 
 - 想知道项目里有什么：用 `syncast.project.inspect`。
-- 需要从零构思方案、剧本、视频思路或未知结构：用 `syncast.agent.delegate` 获取草案；已有完整正文或精确修改时直接用 GraphQL。
+- 需要从零构思方案、剧本、视频思路或未知结构：用 `syncast.agent.delegate` 获取草案；已有完整正文直接用 GraphQL，已有正文的精确文本修改用 `syncast.docs.replaceText`。
 - 用户没说明项目内还是项目外：先询问，不得生成。
 - 想在项目中生成且未指定频道：用 `syncast.imagine.submit`。
 - 想在指定项目 ImagineChannel 中生成：用 `syncast.imagine.submitToChannel`。

@@ -260,21 +260,26 @@ The direct command's `--project`, `--name`, `--folder`, `--folder-id`, and
 integrations. They do not reproduce project interaction and must not be chosen
 by an external Agent after the user says the task is project work.
 
-Document Imagine blocks are a third project-local contract. They must use the
-Action Bridge so the generated asset is written back to the originating block:
+Document Imagine blocks are a third project-local contract. They keep an
+editable root plus independent frozen generation versions, so they must use the
+Action Bridge:
 
 ```shell
-syncast project-agent capabilities --action syncast.docs.imagineBlocks.submitBatch --disclosure full
-syncast project-agent run syncast.docs.imagineBlocks.submitBatch \
-  --input '{"docId":"<doc-id>"}'
+syncast project-agent capabilities --action syncast.docs.imagineBlocks.history --disclosure full
+syncast project-agent run syncast.docs.imagineBlocks.submit \
+  --input '{"docId":"<doc-id>","blockId":"<block-id>"}'
 ```
 
-Use `syncast.docs.imagineBlocks.submit` with `{ docId, blockId }` for one card.
-`submitBatch` accepts optional `blockIds`; omitting them is equivalent to the
-document's “generate all pending” button. It starts each block submission in
-parallel, isolates per-block failures, and returns one task `ref` per successful
-block. Direct `syncast imagine`, even with `--project`, cannot replace this
-contract because it does not update document block state.
+Every explicit `submit` creates another version, including after results exist
+or while older versions run. `submitBatch` without `blockIds` is “generate all
+pending”; explicit `blockIds` create another version for those blocks in
+parallel. Wait on each returned `ref`, then call
+`syncast.docs.imagineBlocks.history`. Copy one exact
+`versions[].results[]` object into `selectResult` to change the preview or
+`fixAsAsset` to land it as a normal Asset block. Do not fix while
+`activeVersionCount > 0`. Use `restoreGeneration` to resume editing/generation
+without losing history. Direct `syncast imagine`, even with `--project`, and
+manual GraphQL state patches cannot replace this contract.
 
 ## Task management
 
@@ -326,7 +331,18 @@ existing page, query its real id and pass `existingDocId`; never infer identity
 from a possibly duplicated title. A content page requires meaningful
 `initialMarkdown`, while only a directory may set `containerOnly: true`.
 `success=true` plus `ready=true` is the write postcondition, so do not spend a
-second tool call on a mechanical read. Use `patchDoc` for an existing body.
+second tool call on a mechanical read. For one or many exact edits in an
+existing body, prefer the structured action so the CLI does not have to invent
+the Patch DSL:
+
+```shell
+syncast project-agent run syncast.docs.replaceText --input '{"docId":"doc-id","replacements":[{"search":"exact old text","replacement":"replacement text"}]}'
+```
+
+Every `search` must match exactly once in the latest Markdown; a missing or
+ambiguous match rejects the whole batch without saving partial results. Use raw
+`patchDoc` only for line, section, or whole-document operations, and first copy
+the complete string format from `syncast.doc.graphql.explain`.
 The full internal schema retains `createDocPage` for App and historical blank
 page callers, but the external `syncast.doc.graphql` contract rejects it.
 
@@ -337,8 +353,8 @@ fail-closed set of high-level external actions. `syncast.imagine.submit` and
 they use the frontend queue and persist Imagine channel history.
 `syncast.timeline.generationSlots.submit` is likewise public because it is the
 Action equivalent of clicking a Slot's generate button.
-`syncast.docs.imagineBlocks.submit` and `submitBatch` are public equivalents of
-the document card and top-level batch buttons. Draft renderers,
+`syncast.docs.imagineBlocks.*` exposes submit, history, selection, explicit
+fix-as-asset, and restore as public equivalents of the document UI. Draft renderers,
 lower-level Agent chat input, typed wait/result, notification actions, and
 compatibility list/search/get aliases remain hidden. The absence of an explicit
 channel-history request is not permission to leave the project flow: use
@@ -370,13 +386,15 @@ A delegated task uses the Agent/Skill snapshot captured at submission. Editing t
 
 Delegate only creative judgment, such as ideation, script design, or an
 unknown structure. If the user supplied complete text, requested an exact
-field edit, replacement, or specified removal, use project GraphQL directly;
-do not send the text through an internal Agent for rewriting or mechanical
-copying. A same-scope, non-billable project write explicitly requested by the
-user is already authorized. Ask again only for scope expansion, additional
-credit spend, deletion, or an ambiguous target. Treat a broad overwrite that
-would discard unrequested content as deletion, but do not reconfirm an exact
-replacement the user already requested.
+field edit, replacement, or specified removal, perform the deterministic write
+directly instead of sending it through an internal Agent. Use project GraphQL
+for new complete documents and metadata fields, `syncast.docs.replaceText` for
+exact text edits in an existing document, and raw `patchDoc` for section or
+removal operations. A same-scope, non-billable project write explicitly
+requested by the user is already authorized. Ask again only for scope
+expansion, additional credit spend, deletion, or an ambiguous target. Treat a
+broad overwrite that would discard unrequested content as deletion, but do not
+reconfirm an exact replacement the user already requested.
 
 Before creating a custom Skill, query same-name Skills. Confirm `alwaysApply`,
 typed `depends`, and whether an Agent binding is needed. After create/update,
@@ -418,220 +436,11 @@ syncast project-agent wait \
   --type agent_action.approval_resolved
 ```
 
-## Library resource packages
+## Library and templates
 
-Normal users publish reusable resources through `syncast library publish`, not
-the admin-only `syncast template` commands. This is the route used by local
-resource packages, private shares, team libraries, and public-review
-submissions.
-
-Before creating a package, ask the CLI for the current machine-readable field guide and canonical example:
-
-```shell
-syncast library guide
-syncast library guide agent
-syncast library guide skill
-syncast library guide project_template
-```
-
-The guide is local and does not require login. Use its JSON output as the contract for package creation; `syncast library publish --help` and `syncast library import --help` point back to it.
-
-Canonical Agent Skill binding:
-
-```json
-{
-  "type": "agent",
-  "id": "story-planner",
-  "name": "Story Planner",
-  "instructions": "Read the project spec, then return a structured plan.",
-  "allow_load_skills": false,
-  "skills": [
-    { "skill_id": "docs", "skill_type": "builtin", "preload": false },
-    {
-      "skill_id": "continuity-checker",
-      "skill_type": "custom",
-      "preload": true
-    }
-  ],
-  "child_agents": [
-    {
-      "child_agent_id": "shot-planner",
-      "alias": "shots",
-      "when_to_use": "Use for shot breakdown.",
-      "handoff_contract": "Return shot ids, risks, and next actions.",
-      "project_spec_strategy": "inherit"
-    }
-  ]
-}
-```
-
-Canonical custom Skill dependency declaration:
-
-```json
-{
-  "type": "skill",
-  "id": "continuity-checker",
-  "name": "Continuity Checker",
-  "instructions": "Check character and shot continuity.",
-  "always_apply": false,
-  "depends": [
-    { "skill_id": "docs", "skill_type": "builtin" },
-    { "skill_id": "visual-style", "skill_type": "custom" }
-  ]
-}
-```
-
-Use snake_case in new Library manifests. The CLI also accepts documented camelCase aliases for programmatic callers. `preload` belongs only to an Agent `skills` binding; it must not appear in a Skill `depends` item. Agent packages reference custom Skills and child Agents by id, so include/install all dependencies before applying them to a project.
-
-`allow_load_skills` is a compatibility field for whether an Agent may discover and load **unselected project custom Skills**. New packages should set it explicitly to `false` unless the Agent intentionally needs the full project custom-Skill catalog. `false` still allows every built-in Skill, selected custom Skills, their dependencies, and `always_apply` custom Skills. A missing legacy value remains `true`. This field does not replace `preload`: `preload` only controls which selected Skills inject their full instructions at startup.
-
-```shell
-# Personal or team library item
-syncast library publish ./bundle.json --type project_template --target personal
-syncast library publish ./bundle.json --type project_template --target team:<teamId>
-
-# Public template review submission
-syncast library publish ./bundle.json --type project_template --target public \
-  --source-project-id <projectId>
-```
-
-`project_template` is the product alias for the stored
-`project_template_bundle` type. Personal and team targets write the complete
-package into workspace library item `data`. Public targets send the same package
-through `typedData.content`, and the backend preserves it into the reviewed
-template content.
-
-Project template bundles may carry ordinary bundle resources plus a reusable
-project skeleton:
-
-```json
-{
-  "type": "project_template",
-  "id": "short-drama-skeleton",
-  "name": "Short Drama Skeleton",
-  "agents": [{ "id": "writer" }],
-  "skills": [{ "id": "continuity-checker" }],
-  "promptTemplates": [],
-  "projectSpecs": [],
-  "standardProjectTemplate": {
-    "schemaVersion": 1,
-    "docs": [
-      {
-        "id": "story-bible",
-        "title": "Story Bible",
-        "body": "# Story Bible\n\nProduction rules."
-      },
-      {
-        "id": "episode-outline",
-        "parentId": "story-bible",
-        "title": "Episode Outline",
-        "body": "Scene beats."
-      }
-    ],
-    "resourceDirs": [
-      { "path": "References/Characters" },
-      { "path": "Shots/Act 1" }
-    ]
-  }
-}
-```
-
-Use camel-case `standardProjectTemplate` for new packages. Legacy
-`standard_project_template` is accepted, but agents should not split skeleton
-Docs or resource folders into ad hoc sidecar files. Import/export/share/public
-submission routes must keep the skeleton inside the package content so other
-clients can discover and consume it.
-
-## Template management (admin only)
-
-All template commands require admin privileges. Non-admin users will receive a permission error.
-
-### List templates
-
-```shell
-# List all templates (including hidden), paginated
-syncast template list
-
-# Filter by category
-syncast template list --category image_prompt
-
-# Search by text
-syncast template list --search "steampunk"
-
-# Fetch all pages at once
-syncast template list --all
-```
-
-### List categories
-
-```shell
-syncast template categories
-```
-
-### Create a template
-
-```shell
-syncast template create \
-  --id "my-template-slug" \
-  --category image_prompt \
-  --title "My Template" \
-  --title-zh "我的模板" \
-  --description "A description" \
-  --content '{"prompt":"a cat on the moon","negative_prompt":"blurry"}' \
-  --tags "concept_art,fantasy" \
-  --thumbnail "https://example.com/thumb.jpg"
-```
-
-### Update a template (creates new version)
-
-```shell
-syncast template update \
-  --id "my-template-slug" \
-  --title "Updated Title" \
-  --tags "concept_art,sci-fi"
-```
-
-### Hide / unhide a template
-
-```shell
-# Soft-delete (hide)
-syncast template hide --id "my-template-slug"
-
-# Restore (unhide)
-syncast template hide --id "my-template-slug" --unhide
-```
-
-### View version history
-
-```shell
-syncast template revisions --id "my-template-slug"
-```
-
-### Bulk upload from JSON file
-
-```shell
-# Validate without uploading
-syncast template bulk-upload --file ./templates.json --dry-run
-
-# Upload (note: use --file, not -f which is reserved for --format)
-syncast template bulk-upload --file ./templates.json
-```
-
-The JSON file must be an array of objects with required fields `template_id`, `category`, `title` and optional fields `title_zh`, `description`, `description_zh`, `content`, `tags`, `thumbnail_url`.
-
-### Template categories
-
-| Category | Description |
-|----------|-------------|
-| `character` | Character templates (persona, appearance) |
-| `image_prompt` | Image generation prompt templates |
-| `agent_prompt` | Agent system prompt templates |
-| `custom_agent` | User or team Agent package submitted for review |
-| `custom_skill` | User or team Skill package submitted for review |
-| `imagine_optimize_preset` | Imagine prompt optimization preset |
-| `doc_spec` | Single project document/spec template |
-| `project_spec_bundle` | Bundle of project specs and related setup |
-| `project_template_bundle` | Full project template bundle, optionally including `standardProjectTemplate` |
+When publishing Library packages, building project-template skeletons, or using
+admin template commands, read
+[references/library-and-templates.md](references/library-and-templates.md).
 
 ## Local file sync (legacy)
 
@@ -641,81 +450,11 @@ syncast sync
 syncast start
 ```
 
-## Common direct CLI models
+## Models and media inputs
 
-| Media | Models |
-|-------|--------|
-| Image | `nano-banana-2`, `nano-banana-pro`, `seedream-5-0-pro`, `gpt-image-2`, `oai-gpt-image-2` |
-| Video | `kittyvibe-seedance2.0pro`, `kittyvibe-seedance2.0fast`, `kittyvibe-seedance2.0global`, `kittyvibe-seedance2.0fastglobal`, `veo-3-1`, `veo-3-1-fast`, `grok-video-3` |
-| Complete audio / scene-aware dubbing | `bytedance/seed-audio-1.0` |
-| Music | `zhenzhen-suno-v5.5` (default), `lyria-3-clip`, `lyria-3-pro` (explicit alternatives) |
-| Sound effects | `fal-ai/elevenlabs/sound-effects/v2` |
-| Clean TTS / voice setup | `minimax/speech-2.8-hd`, `minimax/speech-2.8-turbo`, `minimax/voice-clone`, `minimax/voice-design` |
-
-Default image route: use `nano-banana-2`. For complex composition, long text, strict layout, or higher instruction-following needs, an internal Syncast Agent may use the model schema's `thinking_level: "High"`; with the direct CLI, pass `--model nano-banana-2` and keep the prompt explicit. Use `nano-banana-pro` only when the user explicitly asks for Pro / Nano Banana Pro, or when the request needs a special style, strong stylization, or a specific art-direction exploration.
-
-Treat image reference and image editing as one capability family: **image input**. If the user provides an existing image and asks to keep a character, reuse style, make a variation, change clothes, change background, improve layout, or edit the image, prefer an image-input-capable image model rather than switching mental models between "reference" and "edit". The default image-input route is still `nano-banana-2`; use `oai-gpt-image-2` when the user explicitly asks for OpenAI/GPT Image 2, mask editing, official API behavior, or strict control over `aspect_ratio`, `resolution`, `quality`, `output_format`, or `mask`.
-
-For complex motion, multi-subject, or action-heavy scenes, prefer the Seedance 2.0 Global route `kittyvibe-seedance2.0global`. Use `kittyvibe-seedance2.0fastglobal` for faster/lower-cost Global previews.
-
-Default video route: use `kittyvibe-seedance2.0pro` for text-to-video, image-to-video, and multi-reference/multimodal video. Do not switch to Veo, Grok, Vidu, HappyHorse, or Kling merely because the user provides images or says "references"; Seedance 2.0 is the default multimodal video route. Use `kittyvibe-seedance2.0fast` only for fast/low-cost previews, and use Global variants for complex action, multi-subject, high-motion, monster, fantasy, or difficult choreography requests.
-
-The retired CLI aliases `seedance2.0pro` and `seedance2.0fast` are accepted only
-for compatibility and are rewritten to `kittyvibe-seedance2.0pro` and
-`kittyvibe-seedance2.0fast`. Agents should emit the KittyVibe names directly.
-
-Default complete-audio route: use `syncast audio` with `bytedance/seed-audio-1.0` for scene-aware dubbing, dialogue, narration, radio drama, multi-character performance, or any audio piece that mixes voices with ambience, effects, or music. Use MiniMax Speech instead when the task is clean, stable, reusable long-form TTS without scene mixing.
-
-Default music route: use `syncast music` with `zhenzhen-suno-v5.5` for songs, instrumentals, BGM, scores, lyrics, extensions, and covers. Use `--mode custom` for final lyrics or lyric generation, and `--mode extend` / `cover` with one real audio reference. Lyria is an explicit alternative only when the user names Lyria/Google music generation or specifically needs image-inspired music.
-
-For ambience, foley, UI clicks, impacts, creature sounds, rain, wind, or other non-musical sound design, prefer `syncast sound-effect` with `fal-ai/elevenlabs/sound-effects/v2`. Keep the final prompt in English; Chinese prompts may be auto-translated server-side, but agents should still write clean English sound-effect prompts by default.
-Use `--duration-seconds`, `--prompt-influence`, and `--loop` for sound-effect controls. Do not pass or expose an output-format option for Eleven sound effects; Syncast pins the backend output format to MP3 44.1kHz / 128kbps.
-
-## Media input capability
-
-For standalone assets, direct `syncast imagine` accepts local image input with
-repeatable `--reference-image <path>`. For project work, resolve the source to a
-real project Asset ID and pass it through the project Action's `references` or
-model-specific input. If a required local file is not yet in the project, ask
-the user to import it into the intended project instead of silently switching
-to standalone generation.
-
-Use `--input <json>` or `--input-file <path>` to pass arbitrary image schema fields directly into `task_request.input`; these fields are merged with `model_type`, `prompt`, `aspect_ratio`, and `resolution`. CLI convenience flags `--width`, `--height`, and `--quality` write those schema fields directly, which is useful for custom dimensions such as `--resolution custom --width 2400 --height 3600`.
-
-Use `syncast imagine --help` only for the standalone image route. In project
-work, query the public `syncast.imagine.models` Action for current model limits,
-then submit through `syncast.imagine.submit` or the more specific project
-Action. Do not assume a nonexistent `syncast schema` command, and do not use raw
-direct-CLI passthrough to escape the project workflow.
-
-Stable conceptual mapping for agents:
-
-| User intent | Capability | Standalone route | Project route |
-|-------------|------------|------------------|---------------|
-| Generate from text | Text-to-image | `syncast imagine --model nano-banana-2` | `syncast.imagine.submit` |
-| Use a local picture as character/style/layout/input | Image input | `syncast imagine --reference-image ./image.png` | Import it as a project Asset, then use its ID with `syncast.imagine.submit` |
-| Use an image already in a Syncast project | Image input | Not a standalone task | Project Asset ID in `syncast.imagine.submit` |
-| Edit an existing picture without a strict mask | Image input | `nano-banana-2` with `--reference-image` | `nano-banana-2` through `syncast.imagine.submit` |
-| Mask edit / official OpenAI GPT Image 2 behavior | Image input + mask | `oai-gpt-image-2` | `oai-gpt-image-2` through `syncast.imagine.submit` |
-| Generate video from text/images/multiple media | Multimodal video input | `kittyvibe-seedance2.0pro` | `kittyvibe-seedance2.0pro` through `syncast.imagine.submit` |
-| Fast video preview | Multimodal video input | `kittyvibe-seedance2.0fast` | `kittyvibe-seedance2.0fast` through `syncast.imagine.submit` |
-| Complex action / high motion / many subjects | Multimodal video input | `kittyvibe-seedance2.0global` | `kittyvibe-seedance2.0global` through `syncast.imagine.submit` |
-
-Do not classify "image reference" and "image editing" as separate model families. They are both image-input tasks; choose the model by the required controls and then fill the schema-supported input fields.
-
-## Project-context workflows
-
-If the user is working in a project, stay on Syncast Agent Actions for the
-entire workflow even after the prompt, model, references, and destination are
-known. Use `syncast.imagine.submit` by default,
-`syncast.imagine.submitToChannel` for a specified existing channel,
-`syncast.docs.imagineBlocks.submit/submitBatch` for document cards, and
-`syncast.timeline.generationSlots.submit` for timeline Slots. Direct generation
-commands are only for the separately confirmed external-asset route.
-
-For image cleanup after multi-round edits, use `recraft-ai/recraft-crisp-upscale`; it repairs noisy, scaly, grainy, or broken texture details without requiring a prompt.
-
-For video upscaling, use `topaz/slp-2.5` when the source is AI-generated or modern footage that should become more realistic while preserving structure. Use `fal-ai/topaz/upscale/video` when the user explicitly wants the fal Starlight Precise 2.5 route or needs fal parameters such as `upscale_factor`, `target_fps`, `compression`, `noise`, `halo`, `grain`, `recover_detail`, or `H264_output`. Use `topaz/ast-2` when the user wants creative detail reconstruction or prompt-guided stylization. Topaz video upscalers support `target_resolution` values `1080p` and `4k`; the fal route may also accept an explicit `upscale_factor` from 1 to 4; Astra also supports `creativity`, `sharp`, `realism`, and optional `prompt`.
+When choosing models, handling reference media, or selecting an upscale route,
+read [references/media-models.md](references/media-models.md). Project work
+must still stay on the public Project Agent Actions described above.
 
 ## Troubleshooting
 
